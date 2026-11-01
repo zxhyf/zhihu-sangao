@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>智护三高 · 三高共病 AI 健康管理智能体</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🫀</text></svg>" />
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ 左侧：个人健康侧栏 ============ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">智</div>
+      <div class="brand-text">
+        <h1>智护三高</h1>
+        <p>三高共病 AI 健康管理</p>
+      </div>
+    </div>
+
+    <div class="side-scroll">
+      <section class="panel profile-panel">
+        <div class="panel-head">
+          <span class="panel-title">我的健康档案</span>
+          <button class="ghost tiny" id="editProfileBtn">编辑</button>
+        </div>
+        <div class="profile-main">
+          <div class="avatar-lg" id="profileAvatar">张</div>
+          <div>
+            <div class="profile-name" id="profileName">—</div>
+            <div class="profile-sub" id="profileSub">—</div>
+          </div>
+        </div>
+        <div class="chips" id="profileChips"></div>
+        <div class="bmi-row">
+          <span>BMI</span><b id="bmiValue">—</b>
+          <span class="dot-sep">·</span>
+          <span>体重</span><b id="weightValue">—</b>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <span class="panel-title">三高快照</span>
+          <span class="head-actions">
+            <span class="panel-hint" id="snapTime">—</span>
+            <button class="ghost tiny" id="openLabBtn">检验单</button>
+          </span>
+        </div>
+        <div class="vitals" id="vitals"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <span class="panel-title">今日任务</span>
+          <span class="panel-hint" id="taskRate">0%</span>
+        </div>
+        <div class="progress"><i id="taskBar" style="width:0%"></i></div>
+        <div class="task-list" id="taskList"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <span class="panel-title">知识库</span>
+          <button class="ghost tiny" id="openKbBtn">管理</button>
+        </div>
+        <div class="kb-line">
+          <span id="kbCount">0 篇文档</span>
+          <span class="dot-sep">·</span>
+          <span id="kbChunk">0 个片段</span>
+        </div>
+        <div class="kb-line small">
+          <span id="drugStat">—</span>
+        </div>
+        <button class="link-btn" id="openSourcesBtn">查看数据来源台账 →</button>
+      </section>
+    </div>
+
+    <div class="side-foot">
+      <div class="mode-badge" id="modeBadge"><i></i><span>检测中…</span></div>
+      <div class="foot-note">本系统不构成诊疗意见</div>
+    </div>
+  </aside>
+
+  <!-- ============ 右侧：主区域 ============ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="tabs">
+        <button class="tab active" data-view="chat">对话</button>
+        <button class="tab" data-view="dash">健康看板</button>
+        <button class="tab" data-view="tools">能力与边界</button>
+      </div>
+      <div class="top-actions">
+        <button class="pill-btn" id="bigFontBtn" title="适老化大字模式">A+</button>
+        <button class="pill-btn" id="seedBtn" title="写入一组演示数据">演示数据</button>
+        <button class="pill-btn danger" id="clearBtn" title="清空本地数据">清空</button>
+      </div>
+    </header>
+
+    <!-- 对话视图 -->
+    <section class="view active" id="view-chat">
+      <div class="chat-scroll" id="messages"></div>
+      <div class="composer-wrap">
+        <div class="chips quick" id="quickChips"></div>
+        <div class="composer">
+          <textarea id="input" rows="1" placeholder="说一句话就行，例如：今天血压 150/95 / 我最近血糖怎么样 / 给我一份 7 天方案"></textarea>
+          <button id="sendBtn" class="send" title="发送（Enter）">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3.4 20.4 21 12 3.4 3.6l.01 6.53L15 12 3.41 13.87z" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <div class="composer-foot">
+          <span>Enter 发送 · Shift+Enter 换行</span>
+          <span class="disc">本建议不构成诊疗意见，请遵医嘱。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 看板视图 -->
+    <section class="view" id="view-dash">
+      <div class="dash-scroll">
+        <div class="dash-head">
+          <h2>健康看板</h2>
+          <div class="range-switch" id="rangeSwitch">
+            <button data-days="7">7 天</button>
+            <button data-days="30" class="active">30 天</button>
+            <button data-days="90">90 天</button>
+          </div>
+        </div>
+        <div class="dash-grid" id="dashGrid"></div>
+        <div class="dash-note">
+          图表只使用本地数据库中真实存在的记录绘制；记录不足时会明确提示，不会补写或推测历史数据。
+        </div>
+      </div>
+    </section>
+
+    <!-- 能力与边界视图 -->
+    <section class="view" id="view-tools">
+      <div class="dash-scroll">
+        <div class="dash-head"><h2>智能体能做什么、不能做什么</h2></div>
+        <div class="tool-wrap">
+          <div class="tool-col">
+            <h3>受控工具（白名单）</h3>
+            <div id="toolList" class="tool-list"></div>
+          </div>
+          <div class="tool-col">
+            <h3>明确的边界</h3>
+            <div class="forbid-box">
+              <p>以下能力在本系统中被<b>代码级禁用</b>，不是靠提示词约束：</p>
+              <ul id="forbidList"></ul>
+            </div>
+            <h3 style="margin-top:22px">安全网关联锁</h3>
+            <div class="flow">
+              <div class="flow-step"><b>1</b> 安全网关扫描红旗症状与调药请求</div>
+              <div class="flow-arrow">↓</div>
+              <div class="flow-step"><b>2</b> 命中即锁定输出，大模型不参与</div>
+              <div class="flow-arrow">↓</div>
+              <div class="flow-step"><b>3</b> 未命中的问题才进入工具调用与生成</div>
+              <div class="flow-arrow">↓</div>
+              <div class="flow-step"><b>4</b> 每条回复附来源与免责声明</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ 知识库抽屉 ============ -->
+<div class="drawer-mask" id="kbMask"></div>
+<div class="drawer" id="kbDrawer">
+  <div class="drawer-head">
+    <h3>知识库管理</h3>
+    <button class="ghost" id="closeKbBtn">关闭</button>
+  </div>
+  <p class="drawer-desc">
+    知识库目录：<code id="kbDir">knowledge/docs</code><br />
+    把 <b>.md / .txt / .docx</b> 文件拖到下面，或用“选择文件”导入，系统会自动切分、建立索引，并在回答中标注来源。
+  </p>
+  <div class="drop-zone" id="dropZone">
+    <div class="drop-icon">📄</div>
+    <div>把文件拖到这里</div>
+    <div class="small">支持 .md / .txt / .docx，单个文件建议 &lt; 2 MB</div>
+    <input type="file" id="fileInput" multiple accept=".md,.txt,.docx,.markdown" hidden />
+    <button class="pill-btn" id="pickFileBtn" style="margin-top:10px">选择文件</button>
+  </div>
+  <div class="drawer-actions">
+    <button class="pill-btn" id="reindexBtn">重建索引</button>
+    <button class="pill-btn" id="testSearchBtn">检索测试</button>
+  </div>
+  <div class="search-test" id="searchTest" hidden>
+    <input id="searchInput" placeholder="输入问题，看会命中哪些片段…" />
+    <div id="searchResults" class="search-results"></div>
+  </div>
+  <h4>已收录文档 <span id="kbDocCount" class="muted"></span></h4>
+  <div id="kbDocList" class="kb-doc-list"></div>
+</div>
+
+<!-- ============ 数据来源台账 ============ -->
+<div class="modal-mask" id="sourcesMask">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>数据来源台账</h3>
+      <button class="ghost" id="closeSourcesBtn">关闭</button>
+    </div>
+    <p class="modal-desc" id="sourcesDesc"></p>
+    <div id="sourcesList" class="source-list"></div>
+  </div>
+</div>
+
+<!-- ============ 档案编辑 ============ -->
+<div class="modal-mask" id="profileMask">
+  <div class="modal narrow">
+    <div class="modal-head">
+      <h3>编辑健康档案</h3>
+      <button class="ghost" id="closeProfileBtn">关闭</button>
+    </div>
+    <div class="form-grid">
+      <label>称呼<input id="f_name" /></label>
+      <label>出生年份<input id="f_birth" type="number" /></label>
+      <label>性别<select id="f_sex"><option>男</option><option>女</option></select></label>
+      <label>身高 cm<input id="f_height" type="number" step="0.5" /></label>
+      <label>共病（逗号分隔）<input id="f_conditions" /></label>
+      <label>作息（起床 / 睡觉）<span class="two"><input id="f_wake" /><input id="f_sleep" /></span></label>
+      <label>我基本不做饭<select id="f_cook"><option value="1">会做饭</option><option value="0">基本不做饭</option></select></label>
+      <label>预算<select id="f_budget"><option value="low">节省</option><option value="normal">一般</option><option value="high">宽裕</option></select></label>
+      <label>口味<select id="f_taste"><option value="light">清淡</option><option value="normal">一般</option><option value="salty">偏咸</option><option value="spicy">偏辣</option></select></label>
+    </div>
+    <div class="modal-foot">
+      <button class="pill-btn primary" id="saveProfileBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 检验单录入 ============ -->
+<div class="modal-mask" id="labMask">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>检验单录入</h3>
+      <button class="ghost" id="closeLabBtn">关闭</button>
+    </div>
+    <p class="modal-desc">
+      把化验单上的文字粘贴进来（拍照后用「提取文字」也可以）。系统只做识别，<b>不会自动入库</b>；
+      你逐项核对、勾选后才会写入，避免把小概率的识别错误带进趋势里。
+    </p>
+    <textarea id="labText" rows="8" placeholder="例如：&#10;2026-10-30  生化检验报告&#10;空腹血糖(GLU)      6.8 mmol/L   3.9-6.1&#10;甘油三酯(TG)       2.31 mmol/L  0.4-1.7"></textarea>
+    <div class="lab-actions">
+      <button class="pill-btn" id="labSampleBtn">填入示例</button>
+      <button class="pill-btn primary" id="labParseBtn">解析</button>
+      <span class="lab-hint" id="labHint"></span>
+    </div>
+    <div id="labResult" class="lab-result"></div>
+    <div class="modal-foot">
+      <button class="pill-btn primary" id="labCommitBtn" disabled>确认入库</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/assets/app.js"></script>
+</body>
+</html>

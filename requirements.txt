@@ -1,0 +1,15 @@
+# 本项目默认不需要任何第三方依赖，仅使用 Python 3.9+ 标准库。
+#
+# 直接运行即可：
+#   python app.py
+#
+# 说明：
+#   - 大模型调用使用标准库 urllib，无需安装 openai 包
+#   - Web 服务使用标准库 http.server，无需安装 flask/fastapi
+#   - 知识库检索为内置 BM25 实现，无需安装向量数据库
+#   - .docx 解析使用标准库 zipfile + 正则，无需安装 python-docx
+#   - 图表为前端内联 SVG 绘制，无需安装 matplotlib/plotly
+#
+# 下面两项仅为可选增强，不安装也不影响任何功能：
+# optional: python-docx>=1.1.0   # 若需要更精细的 docx 解析
+# optional: jieba>=0.42.1        # 若需要更细的中文分词（当前用二元组 + 术语表）

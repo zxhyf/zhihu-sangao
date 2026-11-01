@@ -1,0 +1,13 @@
+# 本地敏感配置，不要提交到公开仓库
+.env
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+data/server.*.log
+data/*.png
+reports/*.md
+.DS_Store
+.venv/
+node_modules/
