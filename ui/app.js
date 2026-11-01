@@ -1,4 +1,4 @@
-﻿/* =========================================================
+/* =========================================================
    智护三高 · 前端逻辑（原生 JS，无任何第三方依赖）
    ========================================================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1230,8 +1230,25 @@ function bindUI() {
       e.preventDefault();
       const name = $('#medName').value.trim();
       if (!name) { toast('请先填药名'); return; }
-      const times = ($('#medTimes').value || '08:00')
-        .split(/[,，\s]+/).filter(Boolean);
+      const raw = ($('#medTimes').value || '08:00').split(/[,，、\s]+/).filter(Boolean);
+      // 允许写 8:00 / 早上8点 / 睡前 这类口语，统一成 HH:MM
+      const periodHour = { 早上: '08:00', 早晨: '08:00', 上午: '08:00', 中午: '12:00',
+                           下午: '15:00', 傍晚: '19:00', 晚上: '19:00', 睡前: '22:00' };
+      const times = raw.map(t => {
+        const hm = t.match(/^(\d{1,2})[:：](\d{2})$/);
+        if (hm) return hm[1].padStart(2, '0') + ':' + hm[2];
+        const pt = t.match(/^(早上|早晨|上午|中午|下午|傍晚|晚上|睡前)(\d{1,2})?[点时]?$/);
+        if (pt) {
+          if (pt[2]) {
+            let h = Number(pt[2]);
+            if (['下午', '傍晚', '晚上'].includes(pt[1]) && h < 12) h += 12;
+            return String(h).padStart(2, '0') + ':00';
+          }
+          return periodHour[pt[1]] || '';
+        }
+        return t;
+      }).filter(Boolean);
+      if (times.length > 8) { toast('最多 8 个时段', 3000); return; }
       const bad = times.find(t => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t));
       if (bad) { toast(`时段格式应为 HH:MM，例如 08:00（${bad} 不符合）`, 3200); return; }
       const r = await api('/api/meds/add', {

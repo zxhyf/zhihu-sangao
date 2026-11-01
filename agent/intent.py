@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """自然语言理解层：意图识别 + 健康实体抽取（确定性规则，可解释、可测试）。
 
 不依赖任何第三方库；抽取结果全部可回溯到原文片段，便于在界面上展示“系统读到了什么”。
@@ -317,39 +317,63 @@ def _fmt_hm(hour: int, minute: int = 0) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+PERIOD_DEFAULT = {
+    "早上": 8, "早晨": 8, "上午": 8, "中午": 12, "下午": 15,
+    "傍晚": 19, "晚上": 19, "晚间": 19, "晚": 19, "夜里": 22, "睡前": 22,
+}
+CLOCK_RE = re.compile(
+    r"(早上|早晨|上午|中午|下午|傍晚|晚上|晚间|睡前|夜里|晚)?\s*"
+    r"(\d{1,2})\s*(?:[:：]\s*(\d{1,2})|[点时](?:\s*(\d{1,2})\s*分|\s*半)?)")
+
+
 def parse_schedule(text: str) -> tuple[list[str], str]:
-    """从一句话里抽出服药时间点，返回 (["08:00", ...], 描述)。"""
+    """从一句话里抽出服药时间点，返回 (["08:00", ...], 描述)。
+
+    支持混写：「8点、12点、18点、21点、睡前」「早上8:30、晚上9点」「每天8:00,12:00」。
+    先抓带钟点的表达，再在剩下的文字里补「没有钟点」的时段词，
+    避免「睡前」被前面的几个点挤掉（这正是之前"只能设 4 个时段"的原因）。
+    """
     times: list[str] = []
 
-    # 频次表达优先
+    # 频次表达优先（这类说法没有具体钟点）
     if re.search(r"(一天|每日|每天)?\s*(两|2)\s*次|早晚各|早中各|中午和晚上|bid", text, re.I):
         return ["08:00", "19:00"], "每日 2 次（早、晚）"
     if re.search(r"(一天|每日|每天)?\s*(三|3)\s*次|早中晚", text, re.I):
         return ["08:00", "12:00", "19:00"], "每日 3 次（早、中、晚）"
 
-    # 显式钟点：早上8点 / 晚上20:30 / 睡前
-    for m in re.finditer(
-            r"(早上|早晨|上午|中午|下午|傍晚|晚上|晚间|晚|睡前)?\s*(\d{1,2})\s*[点时](?:\s*(\d{1,2})\s*分|\s*半)?",
-            text):
-        period, hh, mm = m.group(1) or "", int(m.group(2)), m.group(3)
-        minute = 30 if "半" in m.group(0) else (int(mm) if mm else 0)
-        if not (0 <= hh <= 23 and 0 <= minute <= 59):
-            continue
+    consumed: list[tuple[int, int]] = []
+    for m in CLOCK_RE.finditer(text):
+        period = m.group(1) or ""
+        hh = int(m.group(2))
+        if m.group(3) is not None:           # 8:30
+            minute = int(m.group(3))
+        elif "半" in m.group(0):
+            minute = 30
+        elif m.group(4) is not None:         # 8点30分
+            minute = int(m.group(4))
+        else:
+            minute = 0
         if period in ("下午", "傍晚", "晚上", "晚间", "晚") and hh < 12:
             hh += 12
+        if period == "中午" and hh < 11:
+            hh += 12
+        if not (0 <= hh <= 23 and 0 <= minute <= 59):
+            continue
         times.append(_fmt_hm(hh, minute))
+        consumed.append((m.start(), m.end()))
 
-    if not times:
-        if "睡前" in text:
-            times.append("22:00")
-        if re.search(r"早上|早晨|上午|早饭前|早餐前|起床", text):
-            times.append("08:00")
-        if re.search(r"中午|午饭|午餐", text):
-            times.append("12:00")
-        if re.search(r"下午", text):
-            times.append("15:00")
-        if re.search(r"傍晚|晚上|晚饭后|晚餐后|晚饭", text):
-            times.append("19:00")
+    # 在剩余文字里补没有钟点的时段词
+    if consumed:
+        masked = list(text)
+        for s, e in consumed:
+            for i in range(s, min(e, len(masked))):
+                masked[i] = " "
+        rest = "".join(masked)
+    else:
+        rest = text
+    for word, hour in PERIOD_DEFAULT.items():
+        if word in rest:
+            times.append(_fmt_hm(hour))
 
     times = sorted(dict.fromkeys(times))[:8]
     if not times:

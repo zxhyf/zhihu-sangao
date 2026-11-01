@@ -447,6 +447,16 @@ class TestMedPlanChange(unittest.TestCase):
         self.assertEqual(plan["items"][0]["times"],
                          ["08:00", "10:00", "12:00", "15:00", "18:00", "21:00"])
 
+    def test_mixed_period_word_not_dropped(self):
+        # 「睡前」没有钟点，不能被前面几个时间点挤掉
+        plan = intent.parse_med_plan("每天8点、12点、18点、21点、睡前吃一片二甲双胍")
+        self.assertEqual(plan["items"][0]["times"],
+                         ["08:00", "12:00", "18:00", "21:00", "22:00"])
+
+    def test_colon_format_times(self):
+        times, _ = intent.parse_schedule("每天8:00、12:30、18:00、21:00")
+        self.assertEqual(times, ["08:00", "12:30", "18:00", "21:00"])
+
     def test_update_keeps_dose_when_omitted(self):
         medications.add_med(TEST_USER, "保剂量药", "10 mg", times=["08:00"])
         medications.add_med(TEST_USER, "保剂量药", "", times=["08:00", "19:00"])

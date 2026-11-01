@@ -248,6 +248,17 @@ class Handler(BaseHTTPRequestHandler):
             data = path.read_bytes()
         except Exception:
             return self._json({"ok": False, "error": f"文件不存在：{path.name}"}, 404)
+        # 给前端资源加版本号：改了 js/css 后浏览器不会再用旧缓存
+        if path.name == "index.html":
+            try:
+                ver = int(max((UI_DIR / "app.js").stat().st_mtime,
+                              (UI_DIR / "styles.css").stat().st_mtime))
+                html = data.decode("utf-8")
+                html = html.replace("/assets/app.js", f"/assets/app.js?v={ver}")
+                html = html.replace("/assets/styles.css", f"/assets/styles.css?v={ver}")
+                data = html.encode("utf-8")
+            except Exception:
+                pass
         ctype = CONTENT_TYPES.get(path.suffix.lower(), "application/octet-stream")
         self._send(200, data, ctype)
 
