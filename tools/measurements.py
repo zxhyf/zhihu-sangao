@@ -177,6 +177,15 @@ def clear(user_id: str = DEFAULT_USER) -> None:
     db.reset_user_data(user_id)
 
 
+def clear_demo(user_id: str = DEFAULT_USER) -> int:
+    """只清除演示数据（source='demo'），保留用户自己录入的记录。"""
+    demo_ids = [r["id"] for r in db.query(
+        "SELECT id FROM measurements WHERE user_id=? AND source='demo'", (user_id,))]
+    for mid in demo_ids:
+        db.execute("DELETE FROM measurements WHERE id=?", (mid,))
+    return len(demo_ids)
+
+
 def seed_demo(user_id: str = DEFAULT_USER) -> int:
     """写入一组演示数据，覆盖近 30 天，便于展示趋势图。
 

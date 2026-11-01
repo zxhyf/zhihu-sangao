@@ -20,6 +20,12 @@
       </div>
     </div>
 
+    <div class="demo-strip" id="demoStrip" hidden>
+      <span class="demo-dot"></span>
+      <div class="demo-text">当前含 <b id="demoCount">0</b> 条<b>演示数据（合成，非真实病历）</b></div>
+      <button class="demo-clear" id="demoClearBtn">清除</button>
+    </div>
+
     <div class="side-scroll">
       <section class="panel profile-panel">
         <div class="panel-head">
@@ -258,6 +264,18 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- ============ 登录（共享演示模式） ============ -->
+<div class="login-mask" id="loginMask" hidden>
+  <div class="login-box">
+    <div class="login-mark">智</div>
+    <h2>智护三高</h2>
+    <p>本实例已开启访问保护，请输入访问密码。</p>
+    <input type="password" id="loginPassword" placeholder="访问密码" autocomplete="current-password" />
+    <button class="pill-btn primary" id="loginBtn">进入</button>
+    <div class="login-hint" id="loginHint"></div>
+  </div>
+</div>
 <script src="/assets/app.js"></script>
 </body>
 </html>

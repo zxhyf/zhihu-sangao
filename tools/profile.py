@@ -95,3 +95,96 @@ def add_condition(user_id: str, cond: str) -> dict:
     if cond not in conds:
         conds.append(cond)
     return update_profile(user_id, conditions=conds)
+
+
+# ---------------------------------------------------------------- 字段校验
+TIME_RE = None
+ENUMS = {
+    "sex": {"男", "女", "其他"},
+    "budget": {"low", "normal", "high"},
+    "taste": {"light", "normal", "salty", "spicy"},
+}
+
+
+def update_profile_checked(user_id: str, payload: dict) -> dict:
+    """带校验的档案更新：拒绝不合理身高、出生年份、作息与超长文本（对应评审意见 P7）。"""
+    import re
+    errors: dict[str, str] = {}
+    clean: dict = {}
+    now_year = datetime.now().year
+
+    def _num(key, lo, hi, label):
+        if key not in payload or payload[key] in ("", None):
+            return
+        try:
+            v = float(payload[key])
+        except (TypeError, ValueError):
+            errors[key] = f"{label}必须是数字"
+            return
+        if not (lo <= v <= hi):
+            errors[key] = f"{label}应在 {lo:g}–{hi:g} 之间"
+            return
+        clean[key] = v
+
+    if "name" in payload:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            errors["name"] = "称呼不能为空"
+        elif len(name) > 20:
+            errors["name"] = "称呼不超过 20 个字"
+        else:
+            clean["name"] = name
+
+    if payload.get("birth_year") not in (None, ""):
+        try:
+            by = int(payload["birth_year"])
+            if not (now_year - 110 <= by <= now_year - 10):
+                errors["birth_year"] = f"出生年份应在 {now_year - 110}–{now_year - 10} 之间"
+            else:
+                clean["birth_year"] = by
+        except (TypeError, ValueError):
+            errors["birth_year"] = "出生年份必须是整数"
+
+    _num("height_cm", 100, 220, "身高（cm）")
+    _num("target_weight", 30, 200, "目标体重（kg）")
+
+    for key, allowed in ENUMS.items():
+        if key in payload and payload[key] not in (None, ""):
+            if str(payload[key]) not in allowed:
+                errors[key] = f"{key} 只能是 {'/'.join(sorted(allowed))}"
+            else:
+                clean[key] = str(payload[key])
+
+    if "conditions" in payload:
+        conds = payload.get("conditions") or []
+        if isinstance(conds, str):
+            conds = [c.strip() for c in conds.split(",") if c.strip()]
+        conds = [str(c).strip()[:20] for c in conds][:8]
+        if len(conds) > 8:
+            errors["conditions"] = "共病最多填 8 项"
+        clean["conditions"] = conds
+
+    for key in ("wake_time", "sleep_time"):
+        if payload.get(key):
+            val = str(payload[key]).strip()
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", val):
+                errors[key] = "时间格式应为 HH:MM（如 06:30）"
+            else:
+                clean[key] = val
+
+    for key in ("can_cook", "family_support"):
+        if payload.get(key) is not None:
+            clean[key] = 1 if str(payload[key]) in ("1", "True", "true", "是") else 0
+
+    if payload.get("allergies") is not None:
+        clean["allergies"] = str(payload.get("allergies"))[:100]
+    if payload.get("note") is not None:
+        clean["note"] = str(payload.get("note"))[:200]
+
+    if errors:
+        return {"ok": False, "error": "；".join(errors.values()), "fields": errors}
+
+    if not clean:
+        return {"ok": False, "error": "没有可更新的字段"}
+
+    return {"ok": True, "profile": update_profile(user_id, **clean), "updated": sorted(clean)}

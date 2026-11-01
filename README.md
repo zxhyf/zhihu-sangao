@@ -31,6 +31,16 @@ python app.py
 **想接入真实大模型**：把 `.env` 里的 `DEEPSEEK_API_KEY` 换成自己的 Key 即可；
 不配置 Key、或断网、或 API 报错时，系统会自动降级为本地规则引擎，**所有功能与演示流程仍然完整**。
 
+### 两种运行模式
+
+| 模式 | 启动方式 | 访问控制 |
+|---|---|---|
+| **本地单机**（默认） | `python app.py` | 只监听 127.0.0.1；首次访问自动发会话 Cookie，不需要密码。**没设密码时不允许对外监听**，传 `--host 0.0.0.0` 会被强制回退到本机 |
+| **共享演示** | `set APP_PASSWORD=你的密码 && python app.py --host 0.0.0.0` | 先登录再使用；所有 `/api/*` 未登录返回 401；登录失败 5 次/5 分钟限流 |
+
+> 把地址发给评委或部署到局域网/云主机时，**必须用共享演示模式**。
+> 正式试用还可以设 `APP_ENV=prod`，此时不会自动写入演示数据。
+
 ---
 
 ## 二、它能做什么
@@ -111,8 +121,8 @@ python app.py
 │  ├─ styles.css               #   医疗风格设计系统 + 适老化大字模式
 │  └─ app.js                   #   对话、卡片、内联 SVG 图表、看板、知识库管理
 │
-├─ tests/test_system.py        # 46 项自动化回归测试
-├─ verify.py                   # 一键核验脚本（46 项检查，答辩可现场跑）
+├─ tests/test_system.py        # 56 项自动化回归测试
+├─ verify.py                   # 一键核验脚本（56 项检查，答辩可现场跑）
 ├─ reports/                    # 导出的报告
 ├─ docs/                       # 参赛材料
 │  ├─ 智护三高_参赛作品说明.pptx   # 20 页 16:9 演示文稿（按官方 PPT 结构）
@@ -130,9 +140,9 @@ python app.py
 ## 三·五、怎么核验
 
 ```bash
-python verify.py                               # 46 项检查，10 秒出结果
+python verify.py                               # 56 项检查，10 秒出结果
 python verify.py --anon "你的学校名,你的姓名"    # 顺带查匿名风险词
-python -m unittest discover -s tests -v        # 46 项单元测试
+python -m unittest discover -s tests -v        # 56 项单元测试
 ```
 
 人工核验路径、证据检查方法、"看起来不对其实正常"的清单，见 [`docs/核验清单.md`](docs/核验清单.md)。
@@ -167,6 +177,12 @@ python -m unittest discover -s tests -v        # 46 项单元测试
 | 引用约束 | 只能引用检索片段里出现过的来源，回答附"依据"折叠区 | `agent/prompts.py` |
 | 用药提示 | 任何涉及用药的回答（联动检查 / 用药记录 / 用药清单 / 周报），由系统**结构性附加**「不构成用药建议、请严格遵医嘱」提示条，不依赖模型是否记得说 | `agent/formatter.py::med_safety_block` |
 | 统一免责 | 每条回复固定附「本建议不构成诊疗意见，请遵医嘱。」 | `config.py::DISCLAIMER` |
+| **会话与权限** | 用户身份只来自服务端会话，**不接受 URL 里的 `user` 参数**；未设密码时强制只监听 127.0.0.1，设置 `APP_PASSWORD` 后所有 `/api/*` 需登录（401），登录失败按 IP 限流 | `agent/auth.py` + `app.py::_require_session` |
+| **打卡去重** | 按「药物 + 日期 + 计划时段」唯一，重复点击不重复计数；依从率上限 100% | `tools/medications.py::log_dose` |
+| **未知药物拒绝** | 不在用药清单里的药不允许打卡，避免统计失真 | 同上（返回 400 + `unknown_med`） |
+| **演示数据标注** | 库里含演示数据时，侧栏常驻「演示数据（合成）」提示条，可一键只清演示数据 | `app.py::demo_info` + `ui/app.js` |
+| **危险操作二次确认** | 清空全部数据必须传 `confirm=CLEAR`，并写入审计日志 | `app.py` + `data/audit.log` |
+| **档案校验** | 身高 100–220、出生年份、作息格式、文本长度等字段级校验 | `tools/profile.py::update_profile_checked` |
 
 ---
 
@@ -221,15 +237,15 @@ A 类指南要点 6 篇：中国高血压防治指南（2024 修订版）、中�
 ## 七、运行测试与核验
 
 ```bash
-python -m unittest discover -s tests -v   # 46 项单元测试
-python verify.py                          # 46 项一键核验（含数据库/知识库/安全/端到端）
+python -m unittest discover -s tests -v   # 56 项单元测试
+python verify.py                          # 56 项一键核验（含数据库/知识库/安全/端到端）
 ```
 
 单元测试覆盖：意图与实体抽取、时间解析、生理校验、四级风险分级、安全网关（红旗/处方）、
 趋势统计、药物联动、检验单解析与确认入库、方案结构、报告章节、RAG 检索与文档增删、
 编排器端到端、工具白名单。
 
-预期：`Ran 46 tests ... OK`；`verify.py` 输出 `PASS 41 / WARN 1 / FAIL 0`。
+预期：`Ran 56 tests ... OK`；`verify.py` 输出 `PASS 50 / WARN 3 / FAIL 0`。
 
 ---
 

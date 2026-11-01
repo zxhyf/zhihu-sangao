@@ -70,8 +70,11 @@ CREATE TABLE IF NOT EXISTS med_logs (
     med_name  TEXT,
     status    TEXT,              -- taken / skipped / missed
     taken_at  TEXT,
-    note      TEXT
+    note      TEXT,
+    slot      TEXT,              -- 计划时段，如 08:00
+    day       TEXT               -- YYYY-MM-DD，便于按日去重
 );
+-- 唯一索引在 _migrate() 中创建：旧库需要先补列，再建索引
 
 CREATE TABLE IF NOT EXISTS tasks (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,9 +135,22 @@ def init_db() -> None:
         conn = get_conn()
         try:
             conn.executescript(SCHEMA)
+            _migrate(conn)
             conn.commit()
         finally:
             conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """就地升级旧库：给 med_logs 补 slot / day 列与唯一索引（不丢历史数据）。"""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(med_logs)")}
+    if "slot" not in cols:
+        conn.execute("ALTER TABLE med_logs ADD COLUMN slot TEXT")
+    if "day" not in cols:
+        conn.execute("ALTER TABLE med_logs ADD COLUMN day TEXT")
+    conn.execute("UPDATE med_logs SET day = substr(taken_at, 1, 10) WHERE day IS NULL AND taken_at IS NOT NULL")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_med_log_slot ON med_logs(user_id, med_name, day, slot)")
 
 
 def query(sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:

@@ -59,6 +59,16 @@ HOST = os.environ.get("APP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("APP_PORT", "8600"))
 DEFAULT_USER = "u_local"
 
+# ---------------- 安全与运行模式 ----------------
+# APP_ENV: demo（默认，本地演示）/ prod（正式试用，关闭演示数据自动写入）
+APP_ENV = os.environ.get("APP_ENV", "demo").strip().lower()
+# 设置后即启用「共享演示模式」：所有 /api 需要先登录；为空则强制只监听本机
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+# 首次启动是否自动写入演示数据（prod 下默认关闭）
+SEED_ON_FIRST_RUN = os.environ.get("SEED_ON_FIRST_RUN", "0" if APP_ENV == "prod" else "1") == "1"
+# 单条消息最大长度，防止超大输入拖垮服务
+MAX_MESSAGE_LEN = int(os.environ.get("MAX_MESSAGE_LEN", "2000"))
+
 # ---------------- 安全边界 ----------------
 DISCLAIMER = "本建议不构成诊疗意见，请遵医嘱。"
 SAFETY_LINE = "本系统仅提供健康管理辅助，不做诊断、不开处方、不调整药物剂量、不替代医生。"

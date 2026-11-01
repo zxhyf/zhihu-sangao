@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""用药计划与打卡。"""
+"""用药计划与打卡。
+
+三条硬规则（对应评审意见 P3 / P4）：
+1. 打卡按「药物 + 日期 + 计划时段」唯一，重复点击不会重复计数；
+2. 不在当前用药清单里的药，不允许打卡（临时用药请先登记）；
+3. 依从率做边界保护，永远不会超过 100%。
+"""
 from __future__ import annotations
 
 import json
@@ -11,21 +17,25 @@ from data import db
 
 def add_med(user_id: str, name: str, dose: str = "", frequency: str = "每日 1 次",
             times: list[str] | None = None, purpose: str = "") -> dict:
+    name = (name or "").strip()[:40]
+    if not name:
+        return {"ok": False, "error": "药名不能为空"}
+    times = [t for t in (times or ["08:00"]) if t][:6] or ["08:00"]
     existing = db.query_one(
         "SELECT * FROM medications WHERE user_id=? AND name=? AND active=1", (user_id, name))
-    times_json = json.dumps(times or ["08:00"], ensure_ascii=False)
+    times_json = json.dumps(times, ensure_ascii=False)
     if existing:
         db.execute("UPDATE medications SET dose=?, frequency=?, times=?, purpose=? WHERE id=?",
-                   (dose, frequency, times_json, purpose, existing["id"]))
+                   (dose[:40], frequency[:20], times_json, purpose[:60], existing["id"]))
         mid = existing["id"]
     else:
         mid = db.execute(
             """INSERT INTO medications (user_id, name, dose, frequency, times, purpose, active, created_at)
                VALUES (?,?,?,?,?,?,1,?)""",
-            (user_id, name, dose, frequency, times_json, purpose, db.now_iso()),
+            (user_id, name, dose[:40], frequency[:20], times_json, purpose[:60], db.now_iso()),
         )
     return {"ok": True, "id": mid, "name": name, "dose": dose, "frequency": frequency,
-            "times": times or ["08:00"], "purpose": purpose}
+            "times": times, "purpose": purpose}
 
 
 def list_meds(user_id: str = DEFAULT_USER) -> list[dict]:
@@ -37,6 +47,8 @@ def list_meds(user_id: str = DEFAULT_USER) -> list[dict]:
             d["times"] = json.loads(d.get("times") or "[]")
         except Exception:
             d["times"] = []
+        if not d["times"]:
+            d["times"] = ["08:00"]
         out.append(d)
     return out
 
@@ -49,58 +61,108 @@ def stop_med(user_id: str, name: str) -> bool:
     return True
 
 
+def _today_slots(user_id: str, med_name: str, day: str) -> set:
+    rows = db.query(
+        "SELECT slot FROM med_logs WHERE user_id=? AND med_name=? AND day=? AND status='taken'",
+        (user_id, med_name, day))
+    return {r["slot"] for r in rows if r["slot"]}
+
+
 def log_dose(user_id: str, med_name: str, status: str = "taken", note: str = "",
-             taken_at: str | None = None) -> dict:
-    row = db.query_one("SELECT id FROM medications WHERE user_id=? AND name=?",
+             taken_at: str | None = None, slot: str | None = None) -> dict:
+    med_name = (med_name or "").strip()
+    med = db.query_one("SELECT * FROM medications WHERE user_id=? AND name=? AND active=1",
                        (user_id, med_name))
+    if not med:
+        return {
+            "ok": False,
+            "error": f"“{med_name}”不在当前用药清单中，不能打卡。请先在「用药清单」里登记（或说“我在吃 {med_name}”），再打卡。",
+            "code": "unknown_med",
+        }
+
+    try:
+        times = json.loads(med["times"] or "[]") or ["08:00"]
+    except Exception:
+        times = ["08:00"]
+
     ts = taken_at or db.now_iso()
+    day = ts[:10]
+
+    if status == "taken":
+        if slot is None:
+            taken = _today_slots(user_id, med_name, day)
+            free = [t for t in times if t not in taken]
+            if not free:
+                return {
+                    "ok": False,
+                    "error": f"今天的“{med_name}”已经全部打卡（计划 {len(times)} 次），为避免重复计数，本次不计入。",
+                    "code": "already_done",
+                    "done_today": sorted(taken),
+                }
+            slot = free[0]
+        elif slot not in times:
+            return {"ok": False,
+                    "error": f"“{med_name}”的计划时段是 {'/'.join(times)}，{slot} 不在计划内。",
+                    "code": "bad_slot"}
+    else:
+        slot = slot or (times[0] if times else "08:00")
+
     db.execute(
-        "INSERT INTO med_logs (user_id, med_id, med_name, status, taken_at, note) VALUES (?,?,?,?,?,?)",
-        (user_id, row["id"] if row else None, med_name, status, ts, note),
+        """INSERT INTO med_logs (user_id, med_id, med_name, status, taken_at, note, slot, day)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT(user_id, med_name, day, slot)
+           DO UPDATE SET status=excluded.status, taken_at=excluded.taken_at, note=excluded.note""",
+        (user_id, med["id"], med_name, status, ts, note[:80], slot, day),
     )
-    return {"ok": True, "med_name": med_name, "status": status, "taken_at": ts}
+    return {"ok": True, "med_name": med_name, "status": status, "slot": slot,
+            "taken_at": ts, "day": day,
+            "remaining": len([t for t in times if t not in _today_slots(user_id, med_name, day)])}
 
 
 def logs(user_id: str = DEFAULT_USER, days: int = 14) -> list[dict]:
-    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     rows = db.query(
-        "SELECT * FROM med_logs WHERE user_id=? AND taken_at>=? ORDER BY taken_at DESC",
+        "SELECT * FROM med_logs WHERE user_id=? AND COALESCE(day, substr(taken_at,1,10)) >= ? "
+        "ORDER BY taken_at DESC",
         (user_id, since))
     return [dict(r) for r in rows]
 
 
 def adherence(user_id: str = DEFAULT_USER, days: int = 7) -> dict:
-    """依从性统计：以“应服次数”为分母（每日次数 × 天数）。"""
+    """依从率：分子按「药名 + 日期 + 时段」去重，分母为计划次数，结果上限 100%。"""
     meds = list_meds(user_id)
-    expect_per_day = 0
-    for m in meds:
-        n = len(m.get("times") or []) or 1
-        expect_per_day += n
+    expect_per_day = sum(len(m.get("times") or ["08:00"]) for m in meds) or 0
     expected = expect_per_day * days
+
     rows = logs(user_id, days)
-    taken = len([r for r in rows if r.get("status") == "taken"])
-    rate = round(taken / expected * 100, 0) if expected else 0
+    taken_keys = {(r.get("med_name"), r.get("day") or (r.get("taken_at") or "")[:10], r.get("slot"))
+                  for r in rows if r.get("status") == "taken"}
+    taken = len(taken_keys)
+    rate = round(min(100.0, taken / expected * 100)) if expected else 0
+
     by_med: dict = {}
     for m in meds:
-        cnt = len([r for r in rows if r.get("med_name") == m["name"] and r.get("status") == "taken"])
-        exp = (len(m.get("times") or []) or 1) * days
-        by_med[m["name"]] = {"taken": cnt, "expected": exp,
-                             "rate": round(cnt / exp * 100) if exp else 0}
+        slots = m.get("times") or ["08:00"]
+        exp = len(slots) * days
+        cnt = len([k for k in taken_keys if k[0] == m["name"]])
+        by_med[m["name"]] = {"taken": min(cnt, exp), "expected": exp,
+                             "rate": round(min(100.0, cnt / exp * 100)) if exp else 0,
+                             "slots": slots}
     return {"days": days, "expected": expected, "taken": taken, "rate": rate,
             "med_count": len(meds), "by_med": by_med}
 
 
 def today_schedule(user_id: str = DEFAULT_USER) -> list[dict]:
+    """今日服药时间表：每个时段一条，完成状态按「药名 + 时段」判断。"""
     items = []
-    for m in list_meds(user_id):
-        for t in m.get("times") or ["08:00"]:
-            items.append({"time": t, "category": "med", "content": f"{m['name']} {m['dose']}".strip(),
-                          "med_name": m["name"]})
     today = datetime.now().strftime("%Y-%m-%d")
-    done = {r["med_name"] for r in db.query(
-        "SELECT med_name FROM med_logs WHERE user_id=? AND taken_at LIKE ? AND status='taken'",
-        (user_id, today + "%"))}
-    for it in items:
-        it["done"] = it["med_name"] in done
+    for m in list_meds(user_id):
+        done = _today_slots(user_id, m["name"], today)
+        for t in (m.get("times") or ["08:00"]):
+            items.append({
+                "time": t, "category": "med",
+                "content": f"{m['name']} {m['dose']}".strip(),
+                "med_name": m["name"], "slot": t, "done": t in done,
+            })
     items.sort(key=lambda x: x["time"])
     return items

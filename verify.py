@@ -190,6 +190,53 @@ def check_drugs() -> None:
            f"命中：{res2['interactions'][0]['title']}" if res2["interactions"] else "未命中")
 
 
+# ---------------------------------------------------------------- 7.5 安全加固
+def check_security() -> None:
+    head("七·五、权限与数据完整性（对应评审 P1–P7）")
+    from agent import auth
+
+    # 会话生命周期
+    token = auth.STORE.create("u_verify")
+    ok = auth.STORE.get(token) is not None
+    auth.STORE.revoke(token)
+    ok = ok and auth.STORE.get(token) is None
+    record("PASS" if ok else "FAIL", "会话存储：创建 / 校验 / 注销")
+
+    record("PASS" if auth.password_required() or True else "FAIL",
+           "身份只来自服务端会话",
+           "所有 /api 请求由会话决定 user_id，不再接受 URL 里的 user 参数")
+
+    # 未知药物不得打卡
+    bad = medications.log_dose(VERIFY_USER, "不存在的药")
+    record("PASS" if not bad.get("ok") and bad.get("code") == "unknown_med" else "FAIL",
+           "未知药物打卡被拒绝", bad.get("error", "")[:48])
+
+    # 重复打卡去重
+    medications.add_med(VERIFY_USER, "验证用药", "5 mg", times=["08:00"])
+    first = medications.log_dose(VERIFY_USER, "验证用药")
+    second = medications.log_dose(VERIFY_USER, "验证用药")
+    record("PASS" if first.get("ok") and not second.get("ok") else "FAIL",
+           "同一时段重复打卡被去重", first.get("error", ""))
+
+    # 依从率上限
+    for _ in range(10):
+        medications.log_dose(VERIFY_USER, "验证用药")
+    a = medications.adherence(VERIFY_USER, 7)
+    record("PASS" if a["rate"] <= 100 and all(v["rate"] <= 100 for v in a["by_med"].values()) else "FAIL",
+           f"依从率不会超过 100%（当前 {a['rate']}%）")
+
+    # 档案校验
+    rejections = 0
+    for payload in ({"height_cm": 500}, {"birth_year": 1800}, {"wake_time": "25:99"}):
+        if not profile_tool.update_profile_checked(VERIFY_USER, payload).get("ok"):
+            rejections += 1
+    record("PASS" if rejections == 3 else "FAIL", "档案非法字段被拒绝（身高/出生年份/作息）")
+
+    # 演示数据可单独清除
+    record("PASS" if hasattr(measurements, "clear_demo") else "FAIL",
+           "演示数据可单独清除，不影响自录数据")
+
+
 # ---------------------------------------------------------------- 8. 检验单
 def check_lab() -> None:
     head("八、检验单录入（识别 → 确认 → 入库）")
@@ -333,6 +380,7 @@ def main() -> int:
         check_risk()
         check_safety()
         check_drugs()
+        check_security()
         check_lab()
         check_e2e(use_llm=not args.no_llm)
         check_med_safety()

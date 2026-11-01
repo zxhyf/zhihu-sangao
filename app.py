@@ -23,9 +23,10 @@ from urllib.parse import urlparse, parse_qs, unquote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import (APP_NAME, APP_SUBTITLE, DEFAULT_USER, DISCLAIMER, HOST, LLM_MODEL,
-                    PORT, REPORTS_DIR, SOURCES_FILE, UI_DIR, DOCS_DIR, SAFETY_LINE)
+                    PORT, REPORTS_DIR, SOURCES_FILE, UI_DIR, DOCS_DIR, SAFETY_LINE,
+                    APP_ENV, APP_PASSWORD, SEED_ON_FIRST_RUN, MAX_MESSAGE_LEN)
 from data import db
-from agent import llm, orchestrator
+from agent import auth, llm, orchestrator
 from agent.rag import get_kb
 from tools import (interactions, lab_report, measurements, medications, plan as plan_tool,
                    profile as profile_tool, registry, reports, tasks, trends)
@@ -48,6 +49,7 @@ def json_bytes(obj) -> bytes:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "ZhiHuSanGao/1.0"
+    _cookie: str | None = None
 
     # ------------------------------------------------------------------ 基础
     def log_message(self, fmt, *args):  # 降噪
@@ -60,6 +62,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if getattr(self, "_cookie", None):
+            self.send_header("Set-Cookie", self._cookie)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -67,6 +74,68 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    # ------------------------------------------------------------------ 会话
+    def _current_session(self) -> dict | None:
+        cookies = auth.parse_cookie(self.headers.get("Cookie"))
+        return auth.STORE.get(cookies.get(auth.COOKIE_NAME))
+
+    def _require_session(self) -> tuple[str | None, bool]:
+        """返回 (user_id, 是否已拦截)。身份只来自服务端会话，不接受客户端传入。"""
+        sess = self._current_session()
+        if sess:
+            return sess["user_id"], False
+        if not auth.password_required():
+            # 本地单机模式：首次访问自动建会话（服务只监听 127.0.0.1）
+            token = auth.STORE.create(DEFAULT_USER)
+            self._cookie = auth.session_cookie(token)
+            return DEFAULT_USER, False
+        self._json({"ok": False, "error": "未登录或会话已过期", "need_login": True}, 401)
+        return None, True
+
+    def _csrf_ok(self) -> bool:
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True                      # 同源 fetch / curl 通常不带 Origin
+        host = self.headers.get("Host", "")
+        try:
+            return urlparse(origin).netloc == host
+        except Exception:
+            return False
+
+    def handle_session(self) -> None:
+        sess = self._current_session()
+        if sess:
+            return self._json({"ok": True, "authenticated": True, "user_id": sess["user_id"],
+                               "needs_password": auth.password_required()})
+        if not auth.password_required():
+            token = auth.STORE.create(DEFAULT_USER)
+            self._cookie = auth.session_cookie(token)
+            return self._json({"ok": True, "authenticated": True, "user_id": DEFAULT_USER,
+                               "needs_password": False, "mode": "local"})
+        return self._json({"ok": True, "authenticated": False, "needs_password": True})
+
+    def handle_login(self) -> None:
+        ip = self.client_address[0]
+        if not auth.login_allowed(ip):
+            auth.audit("login_throttled", ip=ip)
+            return self._json({"ok": False, "error": "尝试次数过多，请 5 分钟后再试"}, 429)
+        body = self._json_body()
+        if not auth.check_password(body.get("password") or ""):
+            auth.record_login_fail(ip)
+            auth.audit("login_fail", ip=ip)
+            return self._json({"ok": False, "error": "密码不正确"}, 401)
+        token = auth.STORE.create(DEFAULT_USER)
+        self._cookie = auth.session_cookie(token)
+        auth.audit("login_ok", ip=ip)
+        return self._json({"ok": True, "authenticated": True})
+
+    def handle_logout(self) -> None:
+        cookies = auth.parse_cookie(self.headers.get("Cookie"))
+        auth.STORE.revoke(cookies.get(auth.COOKIE_NAME))
+        self._cookie = auth.clear_cookie()
+        auth.audit("logout", ip=self.client_address[0])
+        return self._json({"ok": True, "authenticated": False})
 
     def _json(self, obj, code: int = 200) -> None:
         self._send(code, json_bytes(obj))
@@ -86,11 +155,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------ GET
     def do_GET(self):
+        self._cookie = None
         try:
             parsed = urlparse(self.path)
             path = parsed.path
             qs = parse_qs(parsed.query or "")
-            user_id = (qs.get("user") or [DEFAULT_USER])[0]
 
             if path in ("/", "/index.html"):
                 return self._serve_file(UI_DIR / "index.html")
@@ -99,6 +168,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self._serve_file(UI_DIR / name)
             if path == "/favicon.ico":
                 return self._send(204, b"")
+
+            # 公开端点
+            if path == "/api/health":
+                return self._json({
+                    "ok": True,
+                    "app": APP_NAME,
+                    "env": APP_ENV,
+                    "auth": {"password_required": auth.password_required(),
+                             "bind": HOST},
+                    "llm": {"configured": llm.CLIENT.available, "model": LLM_MODEL,
+                            "mode": "llm" if llm.CLIENT.available else "local"},
+                    "kb": {k: get_kb().status().get(k) for k in ("doc_count", "chunk_count", "built_at")},
+                    "tools": len(registry.TOOLS),
+                })
+            if path == "/api/session":
+                return self.handle_session()
+
+            if not path.startswith("/api/"):
+                return self._json({"ok": False, "error": "not found"}, 404)
+
+            user_id, blocked = self._require_session()
+            if blocked:
+                return
 
             if path == "/api/bootstrap":
                 return self._json(self.bootstrap(user_id))
@@ -126,16 +218,6 @@ class Handler(BaseHTTPRequestHandler):
                         d["blocks"] = []
                     out.append(d)
                 return self._json({"ok": True, "messages": out})
-            if path == "/api/health":
-                return self._json({
-                    "ok": True,
-                    "app": APP_NAME,
-                    "llm": {"configured": llm.CLIENT.available, "model": LLM_MODEL,
-                            "mode": "llm" if llm.CLIENT.available else "local"},
-                    "kb": {k: get_kb().status().get(k) for k in ("doc_count", "chunk_count", "built_at")},
-                    "tools": len(registry.TOOLS),
-                    "db": str(db.db_path()),
-                })
             if path == "/api/report":
                 days = int((qs.get("days") or ["7"])[0])
                 return self._json(reports.weekly(user_id, days))
@@ -164,17 +246,32 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------ POST
     def do_POST(self):
+        self._cookie = None
         try:
             parsed = urlparse(self.path)
             path = parsed.path
             qs = parse_qs(parsed.query or "")
-            user_id = (qs.get("user") or [DEFAULT_USER])[0]
+
+            if path == "/api/login":
+                return self.handle_login()
+            if path == "/api/logout":
+                return self.handle_logout()
+
+            if not self._csrf_ok():
+                auth.audit("csrf_blocked", ip=self.client_address[0], path=path)
+                return self._json({"ok": False, "error": "请求来源校验失败"}, 403)
+
+            user_id, blocked = self._require_session()
+            if blocked:
+                return
 
             if path == "/api/chat":
                 body = self._json_body()
                 message = (body.get("message") or "").strip()
                 if not message:
                     return self._json({"ok": False, "error": "消息不能为空"}, 400)
+                if len(message) > MAX_MESSAGE_LEN:
+                    return self._json({"ok": False, "error": f"消息过长（上限 {MAX_MESSAGE_LEN} 字）"}, 413)
                 result = orchestrator.handle(message, user_id=user_id,
                                              use_llm=body.get("use_llm", True))
                 return self._json(result)
@@ -188,7 +285,11 @@ class Handler(BaseHTTPRequestHandler):
                 name = (body.get("name") or "").strip()
                 if not name:
                     return self._json({"ok": False, "error": "缺少药名"}, 400)
-                return self._json(medications.log_dose(user_id, name, body.get("status") or "taken"))
+                res = medications.log_dose(user_id, name, body.get("status") or "taken",
+                                           slot=body.get("slot"),
+                                           taken_at=body.get("taken_at"))
+                code = 200 if res.get("ok") else 400
+                return self._json(res, code)
 
             if path == "/api/meds/add":
                 body = self._json_body()
@@ -218,13 +319,16 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/profile":
                 body = self._json_body()
-                return self._json({"ok": True, "profile": profile_tool.update_profile(user_id, **body)})
+                res = profile_tool.update_profile_checked(user_id, body)
+                return self._json(res, 200 if res.get("ok") else 400)
 
             if path == "/api/kb/upload":
                 name = (qs.get("name") or ["upload.md"])[0]
                 raw = self._body()
                 if not raw:
                     return self._json({"ok": False, "error": "文件内容为空"}, 400)
+                if len(raw) > 2 * 1024 * 1024:
+                    return self._json({"ok": False, "error": "文件过大（上限 2 MB）"}, 413)
                 if name.lower().endswith(".docx"):
                     saved = get_kb().add_docx(name, raw)
                 else:
@@ -233,6 +337,7 @@ class Handler(BaseHTTPRequestHandler):
                 st = self.kb_status()
                 db.execute("INSERT OR REPLACE INTO kb_files (name, size, chunks, added_at, note) VALUES (?,?,?,?,?)",
                            (saved, len(raw), st.get("chunk_count", 0), db.now_iso(), "由界面导入"))
+                auth.audit("kb_upload", ip=self.client_address[0], file=saved, size=len(raw))
                 return self._json({"ok": True, "saved": saved, "kb": st})
 
             if path == "/api/kb/reindex":
@@ -242,6 +347,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/kb/delete":
                 body = self._json_body()
                 ok = get_kb().remove_document(body.get("doc_id") or "")
+                auth.audit("kb_delete", ip=self.client_address[0], doc_id=body.get("doc_id"))
                 return self._json({"ok": ok, "kb": self.kb_status()})
 
             if path == "/api/kb/search":
@@ -255,8 +361,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "inserted": n, "message": msg})
 
             if path == "/api/demo/clear":
+                body = self._json_body()
+                if (body.get("confirm") or "").strip().upper() != "CLEAR":
+                    return self._json({
+                        "ok": False,
+                        "error": "需要二次确认：请在请求体中传 confirm=CLEAR",
+                        "scope": ["测量记录", "用药计划与打卡", "任务卡", "对话记录", "风险事件"],
+                    }, 400)
+                scope = (body.get("scope") or "all").lower()
+                if scope == "demo":
+                    n = measurements.clear_demo(user_id)
+                    auth.audit("demo_clear", ip=self.client_address[0], user=user_id, rows=n)
+                    return self._json({"ok": True, "scope": "demo", "removed": n})
                 measurements.clear(user_id)
-                return self._json({"ok": True})
+                auth.audit("data_clear", ip=self.client_address[0], user=user_id, scope="all")
+                return self._json({"ok": True, "scope": "all"})
 
             if path == "/api/llm/check":
                 return self._json(llm.CLIENT.health())
@@ -312,7 +431,18 @@ class Handler(BaseHTTPRequestHandler):
             "forbidden": registry.FORBIDDEN,
             "counts": {"measurements": measurements.count(user_id),
                        "measurements_7d": measurements.count(user_id, 7)},
+            "demo": self.demo_info(user_id),
+            "env": APP_ENV,
         }
+
+    def demo_info(self, user_id: str) -> dict:
+        """演示数据提示：让用户随时知道屏幕上的数字是合成的还是自己录的。"""
+        demo_count = db.query_one(
+            "SELECT COUNT(*) AS c FROM measurements WHERE user_id=? AND source='demo'", (user_id,))["c"]
+        real_count = db.query_one(
+            "SELECT COUNT(*) AS c FROM measurements WHERE user_id=? AND source!='demo'", (user_id,))["c"]
+        return {"has_demo": demo_count > 0, "demo_count": demo_count, "real_count": real_count,
+                "env": APP_ENV}
 
 
 def pick_port(host: str, port: int) -> int:
@@ -327,16 +457,20 @@ def pick_port(host: str, port: int) -> int:
     return port
 
 
-def banner(url: str, port: int, seeded: bool) -> None:
+def banner(url: str, port: int, seeded: bool, host: str) -> None:
     line = "─" * 58
     print(f"\n  {APP_NAME} · {APP_SUBTITLE}")
     print(f"  {line}")
     print(f"  ▸ 访问地址   {url}")
+    print(f"  ▸ 运行模式   {'共享演示（需登录密码）' if auth.password_required() else '本地单机（仅本机可访问）'}"
+          f"　环境：{APP_ENV}")
+    print(f"  ▸ 监听地址   {host}" + ("" if auth.password_required() or host in ("127.0.0.1", "localhost")
+                                  else "　⚠️ 未设密码却对外监听，已强制回收为本机"))
     print(f"  ▸ 大模型     {'已连接 DeepSeek（' + LLM_MODEL + '）' if llm.CLIENT.available else '未配置，使用本地规则引擎'}")
     print(f"  ▸ 知识库     {get_kb().status().get('doc_count', 0)} 篇文档 / "
           f"{get_kb().status().get('chunk_count', 0)} 个片段（{DOCS_DIR}）")
     print(f"  ▸ 数据库     {db.db_path()}")
-    print(f"  ▸ 演示数据   {'已写入' if seeded else '沿用已有数据'}")
+    print(f"  ▸ 演示数据   {'已写入（界面会标注）' if seeded else '沿用已有数据'}")
     print(f"  {line}")
     print("  按 Ctrl+C 停止服务\n")
 
@@ -347,6 +481,7 @@ def main() -> None:
     parser.add_argument("--host", default=HOST)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--no-seed", action="store_true", help="不写入演示数据")
+    parser.add_argument("--password", default="", help="共享演示模式：设置访问密码")
     args = parser.parse_args()
 
     try:
@@ -354,20 +489,28 @@ def main() -> None:
     except Exception:
         pass
 
+    # 没有密码就不允许对外监听：这是防止健康数据被局域网他人读取的最低保障
+    host = args.host
+    if not (auth.password_required() or args.password):
+        if host not in ("127.0.0.1", "localhost"):
+            print(f"  ⚠️ 未设置访问密码，拒绝监听 {host}，已回退到 127.0.0.1")
+            host = "127.0.0.1"
+
     db.init_db()
     profile_tool.ensure_profile(DEFAULT_USER)
     get_kb().build()
 
     seeded = False
-    if not args.no_seed and measurements.count(DEFAULT_USER) == 0:
+    if not args.no_seed and SEED_ON_FIRST_RUN and measurements.count(DEFAULT_USER) == 0:
         measurements.seed_demo(DEFAULT_USER)
         seeded = True
+        auth.audit("seed_demo", count=measurements.count(DEFAULT_USER))
     tasks.ensure_today(DEFAULT_USER)
 
-    port = pick_port(args.host, args.port)
-    url = f"http://{args.host}:{port}"
-    server = ThreadingHTTPServer((args.host, port), Handler)
-    banner(url, port, seeded)
+    port = pick_port(host, args.port)
+    url = f"http://{host}:{port}"
+    server = ThreadingHTTPServer((host, port), Handler)
+    banner(url, port, seeded, host)
 
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()

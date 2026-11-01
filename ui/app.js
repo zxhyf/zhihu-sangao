@@ -81,8 +81,42 @@ function toast(msg, ms = 2200) {
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   const ct = res.headers.get('content-type') || '';
+  if (res.status === 401 && !path.startsWith('/api/session') && !path.startsWith('/api/login')) {
+    showLogin('登录状态已过期，请重新输入密码');
+    throw new Error('需要登录');
+  }
   if (!ct.includes('json')) throw new Error('接口返回异常');
   return res.json();
+}
+
+/* ---------------- 登录（共享演示模式） ---------------- */
+function showLogin(msg = '') {
+  const mask = $('#loginMask');
+  if (mask) mask.hidden = false;
+  const hint = $('#loginHint');
+  if (hint) hint.textContent = msg;
+  const inp = $('#loginPassword');
+  if (inp) setTimeout(() => inp.focus(), 80);
+}
+
+async function doLogin() {
+  const pw = ($('#loginPassword') || {}).value || '';
+  const hint = $('#loginHint');
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      $('#loginMask').hidden = true;
+      location.reload();
+      return;
+    }
+    if (hint) hint.textContent = data.error || '密码不正确';
+  } catch (e) {
+    if (hint) hint.textContent = '登录失败：' + e.message;
+  }
 }
 function fmtTime(s) {
   if (!s) return '';
@@ -98,6 +132,13 @@ async function init() {
     localStorage.setItem('zhsg_big', '1');
   }
   bindUI();
+
+  const sess = await api('/api/session').catch(() => null);
+  if (!sess || !sess.authenticated) {
+    showLogin(sess && sess.needs_password ? '' : '无法建立会话');
+    return;
+  }
+
   await refresh();
   const hist = await api('/api/history').catch(() => null);
   const thread = $('#messages');
@@ -145,7 +186,20 @@ async function refresh() {
   renderMode(data);
   renderTools(data);
   renderSources(data);
+  renderDemoStrip(data);
   fillProfileForm(data.profile);
+}
+
+function renderDemoStrip(d) {
+  const strip = $('#demoStrip');
+  if (!strip) return;
+  const demo = d.demo || {};
+  if (demo.has_demo) {
+    $('#demoCount').textContent = demo.demo_count || 0;
+    strip.hidden = false;
+  } else {
+    strip.hidden = true;
+  }
 }
 
 /* ---------------------------------------------------------------- 侧栏 */
@@ -215,13 +269,15 @@ function renderTasks(d) {
       <div><span class="task-time">${esc(t.time_text || '')}</span>
       <span class="task-text"> ${esc((t.content || '').slice(0, 42))}</span></div>`;
     el.querySelector('.tick').onclick = async () => {
-      await api('/api/tasks/toggle', {
+      el.classList.toggle('done');            // 先给即时反馈
+      const r = await api('/api/tasks/toggle', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: t.id }),
       });
       const b = await api('/api/bootstrap');
       state.boot = b;
       renderTasks(b);
+      if (r && r.ok) toast(r.done ? '已勾选' : '已取消勾选');
     };
     box.appendChild(el);
   });
@@ -601,13 +657,17 @@ function medsCard(b, ctx) {
     ${foot}`;
   $$('.checkin', el).forEach(btn => {
     btn.onclick = async () => {
-      await api('/api/meds/log', {
+      const r = await api('/api/meds/log', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: btn.dataset.name }),
       });
+      if (!r || !r.ok) { toast(r && r.error ? r.error : '打卡失败', 3600); return; }
       btn.classList.add('done');
-      btn.textContent = '已打卡 ✓';
-      toast('已记录服药打卡，请继续遵医嘱服药');
+      btn.textContent = `${r.slot} 已打卡 ✓`;
+      const b = await api('/api/bootstrap');
+      state.boot = b;
+      renderTasks(b);
+      toast(`已记录 ${r.slot} 服药打卡，请继续遵医嘱服药`);
     };
   });
   return el;
@@ -644,14 +704,19 @@ function tasksCard(b) {
     </div>`;
   $$('.tick', el).forEach(t => {
     t.onclick = async () => {
-      await api('/api/tasks/toggle', {
+      const r = await api('/api/tasks/toggle', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: Number(t.dataset.id) }),
       });
+      if (!r || !r.ok) { toast('更新失败'); return; }
+      // 就地更新勾选图案（之前只刷新了侧栏，这张卡片本身没变）
+      t.style.background = r.done ? '#0f8f7e' : '#fff';
+      t.style.borderColor = r.done ? '#0f8f7e' : '#d5deea';
+      t.style.color = r.done ? '#fff' : 'transparent';
       const b2 = await api('/api/bootstrap');
       state.boot = b2;
       renderTasks(b2);
-      toast('任务状态已更新');
+      toast(r.done ? '已勾选' : '已取消勾选');
     };
   });
   return el;
@@ -1023,14 +1088,39 @@ function bindUI() {
   };
   $('#clearBtn').onclick = async () => {
     if (!confirm('确定清空本地的健康数据、用药记录和对话记录吗？此操作不可恢复。')) return;
-    await api('/api/demo/clear', { method: 'POST' });
+    await api('/api/demo/clear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'CLEAR' }),
+    });
     const b = await api('/api/bootstrap');
     state.boot = b;
-    renderVitals(b); renderTasks(b); renderProfile(b);
+    renderVitals(b); renderTasks(b); renderProfile(b); renderDemoStrip(b);
     $('#messages').innerHTML = '';
     renderWelcome();
     toast('本地数据已清空');
   };
+
+  // 演示数据提示条上的清除按钮：只清演示数据
+  const demoClear = $('#demoClearBtn');
+  if (demoClear) {
+    demoClear.onclick = async () => {
+      if (!confirm('清除演示数据？你之后自己录入的数据不会被删除。')) return;
+      await api('/api/demo/clear', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: 'CLEAR', scope: 'demo' }),
+      });
+      const b = await api('/api/bootstrap');
+      state.boot = b;
+      renderVitals(b); renderTasks(b); renderProfile(b); renderDemoStrip(b);
+      toast('演示数据已清除，可以开始录入自己的数据');
+    };
+  }
+
+  // 登录
+  const loginBtn = $('#loginBtn');
+  if (loginBtn) loginBtn.onclick = doLogin;
+  const loginInput = $('#loginPassword');
+  if (loginInput) loginInput.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
   // 档案
   $('#editProfileBtn').onclick = () => { fillProfileForm((state.boot || {}).profile); $('#profileMask').classList.add('show'); };

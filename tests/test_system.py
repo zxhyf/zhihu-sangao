@@ -297,6 +297,73 @@ class TestLabReport(unittest.TestCase):
         self.assertEqual(r["mode"], "local")
 
 
+class TestSecurityHardening(unittest.TestCase):
+    """对应评审意见 P1–P9：权限、打卡去重、未知药物、档案校验、急症同义词。"""
+
+    def test_unknown_drug_rejected(self):
+        res = medications.log_dose(TEST_USER, "不存在的药")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["code"], "unknown_med")
+
+    def test_duplicate_checkin_blocked(self):
+        medications.add_med(TEST_USER, "测试药甲", "5 mg", times=["08:00"])
+        first = medications.log_dose(TEST_USER, "测试药甲")
+        self.assertTrue(first["ok"])
+        second = medications.log_dose(TEST_USER, "测试药甲")
+        self.assertFalse(second["ok"])
+        self.assertEqual(second["code"], "already_done")
+
+    def test_multi_slot_requires_each_slot(self):
+        medications.add_med(TEST_USER, "测试药乙", "5 mg", times=["08:00", "18:00"])
+        r1 = medications.log_dose(TEST_USER, "测试药乙")
+        r2 = medications.log_dose(TEST_USER, "测试药乙")
+        self.assertEqual({r1["slot"], r2["slot"]}, {"08:00", "18:00"})
+        self.assertFalse(medications.log_dose(TEST_USER, "测试药乙")["ok"])
+
+    def test_adherence_never_exceeds_100(self):
+        for _ in range(8):
+            medications.log_dose(TEST_USER, "测试药甲")
+        a = medications.adherence(TEST_USER, 7)
+        self.assertLessEqual(a["rate"], 100)
+        for name, v in a["by_med"].items():
+            self.assertLessEqual(v["rate"], 100, name)
+
+    def test_profile_field_validation(self):
+        self.assertFalse(profile_tool.update_profile_checked(TEST_USER, {"height_cm": 500})["ok"])
+        self.assertFalse(profile_tool.update_profile_checked(TEST_USER, {"birth_year": 1800})["ok"])
+        self.assertFalse(profile_tool.update_profile_checked(TEST_USER, {"wake_time": "25:99"})["ok"])
+        self.assertFalse(profile_tool.update_profile_checked(TEST_USER, {"name": "x" * 30})["ok"])
+        self.assertTrue(profile_tool.update_profile_checked(TEST_USER, {"height_cm": 171})["ok"])
+
+    def test_red_flag_synonyms(self):
+        for text in ["我爸嘴歪了，说话含糊", "突然一侧手麻，抬不起胳膊", "气短得厉害，上不来气"]:
+            self.assertEqual(safety.evaluate(text)["level"], "emergency", text)
+
+    def test_no_false_positive_on_mild_complaints(self):
+        for text in ["我今天有点累", "昨晚没睡好", "血压 128/78", "最近走路有点慢"]:
+            self.assertEqual(safety.evaluate(text)["level"], "none", text)
+
+    def test_session_lifecycle(self):
+        from agent import auth
+        token = auth.STORE.create("u_session_test")
+        self.assertIsNotNone(auth.STORE.get(token))
+        self.assertEqual(auth.STORE.get(token)["user_id"], "u_session_test")
+        auth.STORE.revoke(token)
+        self.assertIsNone(auth.STORE.get(token))
+
+    def test_session_expiry(self):
+        from agent import auth
+        token = auth.STORE.create("u_session_test")
+        auth.STORE._sessions[token]["created"] -= auth.SESSION_TTL + 10
+        self.assertIsNone(auth.STORE.get(token))
+
+    def test_garbage_input_does_not_crash(self):
+        r = orchestrator.handle("血压" + "9" * 3000, user_id=TEST_USER, use_llm=False, save=False)
+        self.assertTrue(r["ok"])
+        r2 = orchestrator.handle("！！！", user_id=TEST_USER, use_llm=False, save=False)
+        self.assertTrue(r2["ok"])
+
+
 class TestToolWhitelist(unittest.TestCase):
     def test_unknown_tool_rejected(self):
         res = registry.call("shell.exec", cmd="rm -rf /")
