@@ -221,6 +221,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/report":
                 days = int((qs.get("days") or ["7"])[0])
                 return self._json(reports.weekly(user_id, days))
+            if path == "/api/meds":
+                return self._json({
+                    "ok": True,
+                    "meds": medications.list_meds(user_id),
+                    "schedule": medications.today_schedule(user_id),
+                    "adherence": medications.adherence(user_id, 7),
+                })
             if path == "/api/plan":
                 return self._json(plan_tool.generate(user_id, int((qs.get("days") or ["7"])[0])))
             if path == "/api/tools":
@@ -293,10 +300,17 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/meds/add":
                 body = self._json_body()
-                return self._json(medications.add_med(
+                res = medications.add_med(
                     user_id, body.get("name") or "", body.get("dose") or "",
                     body.get("frequency") or "每日 1 次", body.get("times") or ["08:00"],
-                    body.get("purpose") or ""))
+                    body.get("purpose") or "")
+                code = 200 if res.get("ok") else 400
+                return self._json(res, code)
+
+            if path == "/api/meds/stop":
+                body = self._json_body()
+                ok = medications.stop_med(user_id, (body.get("name") or "").strip())
+                return self._json({"ok": ok}, 200 if ok else 404)
 
             if path == "/api/drug/check":
                 body = self._json_body()

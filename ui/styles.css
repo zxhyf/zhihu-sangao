@@ -769,3 +769,71 @@ html.big .med-inline-note { font-size: 13.5px; }
 html.big .demo-strip { font-size: 13.5px; }
 html.big .login-box p { font-size: 14px; }
 html.big .login-box input { font-size: 16px; }
+
+/* =========================================================
+   用药打卡页
+   ========================================================= */
+.meds-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 14px; }
+.meds-kpi { display: flex; gap: 18px; font-size: 12.5px; color: var(--muted); }
+.meds-kpi b { color: var(--ink); font-size: 16px; }
+.meds-kpi .kpi { text-align: right; }
+.meds-kpi .kpi span { display: block; font-size: 11px; }
+
+.schedule { display: flex; flex-direction: column; }
+.slot {
+  display: grid; grid-template-columns: 58px 1fr auto; gap: 10px; align-items: center;
+  padding: 10px 0; border-bottom: 1px dashed var(--line);
+}
+.slot:last-child { border-bottom: 0; }
+.slot-time { font-weight: 700; color: var(--primary-d); font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.slot-name { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.slot-dose { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+.slot-btn {
+  border: 1px solid var(--primary); color: var(--primary-d); background: #fff;
+  border-radius: 9px; padding: 5px 12px; font-size: 12px; min-width: 74px;
+}
+.slot-btn:hover { background: var(--primary-l); }
+.slot-btn.done { background: var(--primary); border-color: var(--primary); color: #fff; cursor: default; }
+.slot.upcoming .slot-btn { border-color: var(--line-2); color: var(--muted); }
+
+.med-form { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 7px; margin-top: 12px; }
+.med-form input {
+  padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 9px;
+  font-family: inherit; font-size: 12.5px; outline: none; min-width: 0;
+}
+.med-form input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(15, 143, 126, .1); }
+.med-form-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+
+.adh-list { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
+.adh-row { display: grid; grid-template-columns: 92px 1fr 76px; gap: 10px; align-items: center; font-size: 12.5px; }
+.adh-bar { height: 8px; background: #eef2f7; border-radius: 99px; overflow: hidden; }
+.adh-bar > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--primary), #33c4ad); }
+.adh-num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1180px) { .meds-grid { grid-template-columns: 1fr; } }
+html.big .slot-time, html.big .slot-name { font-size: 15.5px; }
+html.big .slot-btn { font-size: 14px; padding: 7px 14px; }
+html.big .adh-row { font-size: 14.5px; }
+html.big .med-form input { font-size: 14px; }
+
+/* 侧栏快捷入口 */
+.quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.quick-tile {
+  border: 1px solid var(--line); background: linear-gradient(180deg, #fff, #fafcff);
+  border-radius: 11px; padding: 9px 10px; text-align: left; transition: .15s;
+}
+.quick-tile:hover { border-color: var(--primary); background: var(--primary-l); }
+.quick-tile b { display: block; font-size: 12.5px; color: var(--ink); margin-bottom: 2px; }
+.quick-tile span { font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+html.big .quick-tile b { font-size: 14.5px; }
+html.big .quick-tile span { font-size: 12.5px; }
+
+/* 快捷入口：一行四个，尽量少占侧栏高度 */
+.quick-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.quick-chip2 {
+  flex: 1 1 0; min-width: 0; border: 1px solid var(--line-2); background: #fff;
+  border-radius: 9px; padding: 8px 4px; font-size: 11.5px; color: var(--ink-2);
+  text-align: center; transition: .15s; white-space: nowrap;
+}
+.quick-chip2:hover { border-color: var(--primary); background: var(--primary-l); color: var(--primary-d); }
+html.big .quick-chip2 { font-size: 13.5px; padding: 9px 4px; }

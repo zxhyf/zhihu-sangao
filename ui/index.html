@@ -60,8 +60,24 @@
 
       <section class="panel">
         <div class="panel-head">
+          <span class="panel-title">快捷入口</span>
+          <span class="panel-hint">都在这里</span>
+        </div>
+        <div class="quick-row">
+          <button class="quick-chip2" id="qaMeds">用药打卡</button>
+          <button class="quick-chip2" id="qaPlan">7 天方案</button>
+          <button class="quick-chip2" id="qaReport">本周报告</button>
+          <button class="quick-chip2" id="qaLab">检验单</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
           <span class="panel-title">今日任务</span>
-          <span class="panel-hint" id="taskRate">0%</span>
+          <span class="head-actions">
+            <span class="panel-hint" id="taskRate">0%</span>
+            <button class="ghost tiny" id="openMedsBtn">用药打卡</button>
+          </span>
         </div>
         <div class="progress"><i id="taskBar" style="width:0%"></i></div>
         <div class="task-list" id="taskList"></div>
@@ -95,6 +111,7 @@
     <header class="topbar">
       <div class="tabs">
         <button class="tab active" data-view="chat">对话</button>
+        <button class="tab" data-view="meds">用药打卡</button>
         <button class="tab" data-view="dash">健康看板</button>
         <button class="tab" data-view="tools">能力与边界</button>
       </div>
@@ -119,6 +136,55 @@
         <div class="composer-foot">
           <span>Enter 发送 · Shift+Enter 换行</span>
           <span class="disc">本建议不构成诊疗意见，请遵医嘱。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 用药视图 -->
+    <section class="view" id="view-meds">
+      <div class="dash-scroll">
+        <div class="dash-head">
+          <h2>用药打卡</h2>
+          <div class="meds-kpi" id="medsKpi"></div>
+        </div>
+
+        <div class="meds-grid">
+          <div class="card">
+            <div class="card-title">今日服药 <span class="card-sub" id="medsTodayHint">—</span></div>
+            <div id="medsSchedule" class="schedule"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">我的用药清单 <span class="card-sub">按医生处方登记</span></div>
+            <div id="medsList"></div>
+            <form class="med-form" id="medForm" autocomplete="off">
+              <input id="medName" placeholder="药名，如 氨氯地平" maxlength="20" />
+              <input id="medDose" placeholder="剂量，如 5 mg" maxlength="20" />
+              <input id="medTimes" placeholder="时段，如 08:00,18:00" maxlength="40" />
+              <button class="pill-btn primary" type="submit">添加</button>
+            </form>
+            <div class="med-form-hint">登记后即可在每个时段打卡；系统不判断剂量是否合适，请以医生处方为准。</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <div class="card-title">近 7 天依从率 <span class="card-sub" id="adhHint"></span></div>
+          <div id="adhList" class="adh-list"></div>
+        </div>
+
+        <div class="safety-note" style="margin-top:14px">
+          <div class="sn-head"><span class="sn-icon">⚠️</span>用药安全提醒</div>
+          <ul>
+            <li>这里的打卡只是记录你有没有按时服药，<strong>不构成用药建议</strong>，也不能替代医生或药师的判断。</li>
+            <li><strong>请严格按医生处方服药</strong>：不自行加量、减量、换药或停药；漏服后不要自行补双倍剂量。</li>
+            <li>出现头晕、心慌、水肿、肌肉酸痛、黑便等不适，请尽快就医并带上完整用药清单。</li>
+          </ul>
+          <div class="sn-foot">本建议不构成诊疗意见，请遵医嘱。</div>
+        </div>
+
+        <div class="dash-note">
+          打卡按「药物 + 日期 + 时段」唯一：同一时段重复点击不会重复计数，依从率不会超过 100%。
+          想检查药物之间的相互影响，可在对话里说「我在吃××和××，要注意什么」。
         </div>
       </div>
     </section>

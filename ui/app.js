@@ -960,6 +960,99 @@ function autoGrow(el) {
   el.style.height = Math.min(140, el.scrollHeight) + 'px';
 }
 
+/* ---------------------------------------------------------------- 用药打卡页 */
+async function renderMeds() {
+  const data = await api('/api/meds');
+  const meds = data.meds || [];
+  const schedule = data.schedule || [];
+  const adh = data.adherence || {};
+
+  const doneN = schedule.filter(s => s.done).length;
+  $('#medsKpi').innerHTML = `
+    <div class="kpi"><b>${doneN}/${schedule.length}</b><span>今日已服</span></div>
+    <div class="kpi"><b>${adh.rate || 0}%</b><span>7 天依从率</span></div>
+    <div class="kpi"><b>${meds.length}</b><span>在服药物</span></div>`;
+  $('#medsTodayHint').textContent = schedule.length
+    ? `${doneN}/${schedule.length} 已完成`
+    : '还没有登记用药';
+
+  // 今日服药时间表
+  const sch = $('#medsSchedule');
+  sch.innerHTML = '';
+  if (!schedule.length) {
+    sch.innerHTML = `<div class="vital-empty">还没有登记用药。可以在右侧添加，或直接对我说“我在吃氨氯地平 5 mg，每天早上一片”。</div>`;
+  }
+  schedule.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'slot';
+    row.innerHTML = `
+      <div class="slot-time">${esc(item.time)}</div>
+      <div><div class="slot-name">${esc(item.med_name)} <span class="slot-dose">${esc(item.content.replace(item.med_name, '').trim() || '')}</span></div>
+        <div class="slot-dose">${item.done ? '已打卡' : '待打卡'}</div></div>
+      <button class="slot-btn${item.done ? ' done' : ''}">${item.done ? '已服 ✓' : '打卡'}</button>`;
+    const btn = row.querySelector('.slot-btn');
+    if (!item.done) {
+      btn.onclick = async () => {
+        const r = await api('/api/meds/log', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: item.med_name, slot: item.slot }),
+        });
+        if (!r || !r.ok) { toast(r && r.error ? r.error : '打卡失败', 3600); return; }
+        toast(`${item.med_name} ${item.slot} 已打卡，请继续遵医嘱服药`);
+        const b = await api('/api/bootstrap');
+        state.boot = b;
+        renderTasks(b);
+        await renderMeds();
+      };
+    }
+    sch.appendChild(row);
+  });
+
+  // 用药清单
+  const list = $('#medsList');
+  list.innerHTML = '';
+  if (!meds.length) {
+    list.innerHTML = '<div class="vital-empty">清单为空。添加后，每个时段都能在这里打卡。</div>';
+  }
+  meds.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'med-row';
+    row.innerHTML = `
+      <div><div class="med-name">${esc(m.name)} <span class="med-meta">${esc(m.dose || '')}</span></div>
+        <div class="med-meta">${esc(m.frequency || '')} · ${esc((m.times || []).join(' / '))}</div></div>
+      <button class="ghost tiny" data-stop="${esc(m.name)}">停用</button>`;
+    row.querySelector('[data-stop]').onclick = async () => {
+      if (!confirm(`停药要由医生决定。这里只是把它从打卡清单里移出，确定要移除「${m.name}」吗？`)) return;
+      await api('/api/meds/stop', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: m.name }),
+      });
+      toast('已从打卡清单移除（不代表可以停药）');
+      await renderMeds();
+    };
+    list.appendChild(row);
+  });
+
+  // 依从率
+  const adhBox = $('#adhList');
+  $('#adhHint').textContent = `${adh.days || 7} 天 · 应服 ${adh.expected || 0} 次 · 实服 ${adh.taken || 0} 次`;
+  adhBox.innerHTML = '';
+  const byMed = adh.by_med || {};
+  const names = Object.keys(byMed);
+  if (!names.length) {
+    adhBox.innerHTML = '<div class="vital-empty">还没有用药计划，无法统计依从率。</div>';
+  }
+  names.forEach(name => {
+    const v = byMed[name];
+    const row = document.createElement('div');
+    row.className = 'adh-row';
+    row.innerHTML = `<div>${esc(name)}</div>
+      <div class="adh-bar"><i style="width:${Math.min(100, v.rate)}%"></i></div>
+      <div class="adh-num">${v.taken}/${v.expected} · ${v.rate}%</div>`;
+    adhBox.appendChild(row);
+  });
+}
+
 /* ---------------------------------------------------------------- 看板 */
 async function renderDash(days) {
   state.dashDays = days;
@@ -1046,8 +1139,61 @@ function bindUI() {
       $('#view-' + t.dataset.view).classList.add('active');
       state.view = t.dataset.view;
       if (t.dataset.view === 'dash') await renderDash(state.dashDays);
+      if (t.dataset.view === 'meds') await renderMeds();
     };
   });
+
+  // 侧栏「用药打卡」直达
+  const openMeds = $('#openMedsBtn');
+  if (openMeds) {
+    openMeds.onclick = () => {
+      const tab = document.querySelector('.tab[data-view="meds"]');
+      if (tab) tab.click();
+    };
+  }
+
+  // 快捷入口
+  const goChat = () => {
+    const tab = document.querySelector('.tab[data-view="chat"]');
+    if (tab) tab.click();
+  };
+  const qaMeds = $('#qaMeds');
+  if (qaMeds) qaMeds.onclick = () => {
+    const tab = document.querySelector('.tab[data-view="meds"]');
+    if (tab) tab.click();
+  };
+  const qaPlan = $('#qaPlan');
+  if (qaPlan) qaPlan.onclick = () => { goChat(); sendMessage('给我一份 7 天方案'); };
+  const qaReport = $('#qaReport');
+  if (qaReport) qaReport.onclick = () => { goChat(); sendMessage('帮我生成这周的报告'); };
+  const qaLab = $('#qaLab');
+  if (qaLab) qaLab.onclick = () => openLabModal();
+
+  // 添加用药
+  const medForm = $('#medForm');
+  if (medForm) {
+    medForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const name = $('#medName').value.trim();
+      if (!name) { toast('请先填药名'); return; }
+      const times = ($('#medTimes').value || '08:00')
+        .split(/[,，\s]+/).filter(Boolean);
+      const bad = times.find(t => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t));
+      if (bad) { toast(`时段格式应为 HH:MM，例如 08:00（${bad} 不符合）`, 3200); return; }
+      const r = await api('/api/meds/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, dose: $('#medDose').value.trim(), times,
+                               frequency: times.length > 1 ? `每日 ${times.length} 次` : '每日 1 次' }),
+      });
+      if (!r || !r.ok) { toast(r && r.error ? r.error : '添加失败'); return; }
+      $('#medName').value = ''; $('#medDose').value = ''; $('#medTimes').value = '';
+      toast(`已添加「${name}」，可在今日服药里打卡`);
+      const b = await api('/api/bootstrap');
+      state.boot = b;
+      renderTasks(b);
+      await renderMeds();
+    };
+  }
 
   // 快捷问题
   const chips = [

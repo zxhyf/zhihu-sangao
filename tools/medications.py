@@ -107,6 +107,16 @@ def log_dose(user_id: str, med_name: str, status: str = "taken", note: str = "",
     else:
         slot = slot or (times[0] if times else "08:00")
 
+    # 指定时段重复打卡：幂等但不重复计数，并如实告知
+    if status == "taken":
+        exist = db.query_one(
+            "SELECT id FROM med_logs WHERE user_id=? AND med_name=? AND day=? AND slot=? AND status='taken'",
+            (user_id, med_name, day, slot))
+        if exist:
+            return {"ok": False, "code": "already_done",
+                    "error": f"“{med_name}”{slot} 这个时段已经打过卡了，本次不计入。",
+                    "slot": slot}
+
     db.execute(
         """INSERT INTO med_logs (user_id, med_id, med_name, status, taken_at, note, slot, day)
            VALUES (?,?,?,?,?,?,?,?)
