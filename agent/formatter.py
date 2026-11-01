@@ -120,6 +120,48 @@ def cta_block(title: str, body: str, button: str, action: str) -> dict:
     return {"type": "cta", "title": title, "body": body, "button": button, "action": action}
 
 
+def med_change_block(plan: dict) -> dict:
+    """用药计划变更的「待确认」卡片：确认前不写库。"""
+    return {
+        "type": "med_change",
+        "action": plan.get("action", "upsert"),
+        "title": "确认用药计划变更",
+        "items": plan.get("items", []),
+        "desc": plan.get("desc", ""),
+        "caution": plan.get("caution", ""),
+    }
+
+
+def med_plan_reply(plan: dict) -> str:
+    """用药计划变更的确定性文案：不写"已写入"，必须等用户确认。"""
+    items = plan.get("items", [])
+    lines = []
+    if plan.get("action") == "stop":
+        names = "、".join(i["name"] for i in items)
+        lines = [
+            "我先不动数据，等你确认。",
+            f"- 要从「用药打卡」移除：**{names}**",
+            "",
+            "⚠️ 如果这不是医生的要求，请不要自行停药。确认后我只把它从打卡清单里删掉，"
+            "不改变任何医疗建议，也不会调整剂量。",
+        ]
+    else:
+        for i in items:
+            times = "、".join(i.get("times") or []) or "08:00"
+            dose = f" {i['dose']}" if i.get("dose") else ""
+            lines.append(f"- **{i['name']}**{dose}　{times}")
+        lines = [
+            "我先不写数据，请你核对一下：",
+            *lines,
+            f"安排：{plan.get('desc') or '每日 1 次（08:00）'}",
+            "",
+            "确认后才会写进「用药打卡」，之后每天到点就能打卡。剂量与频次请以医生处方为准。",
+        ]
+        if plan.get("caution"):
+            lines.append(plan["caution"])
+    return "\n".join(x for x in lines if x is not None)
+
+
 def med_safety_block(extra: list[str] | None = None) -> dict:
     """用药语境下强制附加的安全提示：不依赖模型是否记得说，由系统结构性保证。"""
     lines = [

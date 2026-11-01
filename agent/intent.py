@@ -227,8 +227,7 @@ def parse_medications(text: str) -> list[dict]:
 
 INTENT_KEYWORDS = {
     "plan": ["方案", "计划", "食谱", "吃什么", "怎么吃", "安排", "一周", "7天", "七天",
-             "明天", "早餐", "午餐", "晚餐", "配餐", "菜单"],
-    "report": ["报告", "周报", "总结", "汇总", "月报", "复盘"],
+             "明天", "早餐", "午餐", "晚餐", "配餐", "菜单"],    "report": ["报告", "周报", "总结", "汇总", "月报", "复盘"],
     "interaction": ["一起吃", "相互作用", "冲突", "同服", "相克", "能同时", "配着吃",
                     "用药安全", "副作用", "不良反应", "忌口"],
     "query_trend": ["趋势", "变化", "最近", "近来", "这段时间", "怎么样", "控制得",
@@ -280,6 +279,12 @@ def detect_intent(text: str) -> tuple[str, float, dict]:
     if re.search(r"今天.{0,4}(做什么|干什么|安排什么|有什么任务|要干什么|该干啥)", t):
         scores["task"] = scores.get("task", 0) + 3.0
 
+    # 用药计划变更（写入/修改/移除打卡安排），优先级高于「今天吃了一次」的记录
+    med_plan = parse_med_plan(t)
+    if med_plan:
+        scores["med_plan"] = scores.get("med_plan", 0) + 5.0
+        scores.pop("med_record", None)
+
     if re.search(r"(我的药|我的用药|用药清单|吃药要注意|药有没有(冲突|问题)|这些药)", t):
         scores["interaction"] = scores.get("interaction", 0) + 3.0
 
@@ -288,12 +293,150 @@ def detect_intent(text: str) -> tuple[str, float, dict]:
         scores["kb"] += 1.0
 
     if not scores:
-        return "kb", 0.55, {"measurements": measurements, "medications": meds}
+        return "kb", 0.55, {"measurements": measurements, "medications": meds, "med_plan": med_plan}
 
     intent = max(scores, key=lambda k: scores[k])
     total = sum(scores.values()) or 1
     conf = round(min(0.98, 0.45 + scores[intent] / (total + 1.2)), 2)
-    return intent, conf, {"measurements": measurements, "medications": meds, "scores": scores}
+    return intent, conf, {"measurements": measurements, "medications": meds,
+                          "scores": scores, "med_plan": med_plan}
+
+
+# ---------------------------------------------------------------- 用药计划
+# 周期性表达：出现这些词才认为是"安排"，否则只是"今天吃了一次"
+RECUR_WORDS = ("每天", "每日", "每晚", "每早", "每次", "一日", "长期", "以后", "从今天起",
+               "常规", "平时", "一直", "固定")
+PLAN_VERBS = ("改成", "改为", "调整为", "调整成", "加入", "加进", "加上", "安排", "设定",
+              "设个提醒", "记到", "录入到", "改到")
+STOP_PATTERN = re.compile(
+    r"(停(用|掉|药)|不(再|用|需要|想|打算)?吃|不用吃|不需要吃|删(掉|除)|移(除|出|走)|去掉|取消)")
+ADVICE_QUESTION = re.compile(r"(能不能|可不可以|能否|要不要|该不该|是不是可以|是否)")
+
+
+def _fmt_hm(hour: int, minute: int = 0) -> str:
+    return f"{hour:02d}:{minute:02d}"
+
+
+def parse_schedule(text: str) -> tuple[list[str], str]:
+    """从一句话里抽出服药时间点，返回 (["08:00", ...], 描述)。"""
+    times: list[str] = []
+
+    # 频次表达优先
+    if re.search(r"(一天|每日|每天)?\s*(两|2)\s*次|早晚各|早中各|中午和晚上|bid", text, re.I):
+        return ["08:00", "19:00"], "每日 2 次（早、晚）"
+    if re.search(r"(一天|每日|每天)?\s*(三|3)\s*次|早中晚", text, re.I):
+        return ["08:00", "12:00", "19:00"], "每日 3 次（早、中、晚）"
+
+    # 显式钟点：早上8点 / 晚上20:30 / 睡前
+    for m in re.finditer(
+            r"(早上|早晨|上午|中午|下午|傍晚|晚上|晚间|晚|睡前)?\s*(\d{1,2})\s*[点时](?:\s*(\d{1,2})\s*分|\s*半)?",
+            text):
+        period, hh, mm = m.group(1) or "", int(m.group(2)), m.group(3)
+        minute = 30 if "半" in m.group(0) else (int(mm) if mm else 0)
+        if not (0 <= hh <= 23 and 0 <= minute <= 59):
+            continue
+        if period in ("下午", "傍晚", "晚上", "晚间", "晚") and hh < 12:
+            hh += 12
+        times.append(_fmt_hm(hh, minute))
+
+    if not times:
+        if "睡前" in text:
+            times.append("22:00")
+        if re.search(r"早上|早晨|上午|早饭前|早餐前|起床", text):
+            times.append("08:00")
+        if re.search(r"中午|午饭|午餐", text):
+            times.append("12:00")
+        if re.search(r"下午", text):
+            times.append("15:00")
+        if re.search(r"傍晚|晚上|晚饭后|晚餐后|晚饭", text):
+            times.append("19:00")
+
+    times = sorted(dict.fromkeys(times))[:4]
+    if not times:
+        return [], ""
+    desc = f"每日 {len(times)} 次（{'、'.join(times)}）" if len(times) > 1 else f"每日 1 次（{times[0]}）"
+    return times, desc
+
+
+def parse_med_plan(text: str) -> dict | None:
+    """判断这句话是不是在"安排用药"（而非只记录今天吃了一次）。
+
+    返回 {action: "upsert"|"stop", items:[{name,dose,times}], desc, caution}
+    """
+    t = (text or "").strip()
+    if not t:
+        return None
+    meds = parse_medications(t)
+    if not meds:
+        return None
+
+    is_stop = bool(STOP_PATTERN.search(t))
+    # 问句（能不能停药/减量）交给处方红线处理，不当作计划变更
+    if is_stop and ADVICE_QUESTION.search(t):
+        return None
+
+    times, sched_desc = parse_schedule(t)
+    has_recur = any(w in t for w in RECUR_WORDS)
+    has_verb = any(w in t for w in PLAN_VERBS)
+
+    if is_stop:
+        action = "stop"
+    elif has_recur or has_verb:
+        action = "upsert"
+    else:
+        return None
+
+    items = []
+    seen = set()
+    global_times, global_desc = times, sched_desc
+
+    # 逐句解析：让「早上 8 点吃 A，晚上 9 点吃 B」各归各的时间
+    for seg in re.split(r"[，,；;。\n]+", t):
+        seg_meds = parse_medications(seg)
+        if not seg_meds:
+            continue
+        seg_times, _ = parse_schedule(seg)
+        for m in seg_meds:
+            if m["name"] in seen:
+                continue
+            seen.add(m["name"])
+            use_times = seg_times or global_times
+            items.append({
+                "name": m["name"],
+                "dose": m.get("dose") or "",
+                "times": [] if action == "stop" else (use_times or ["08:00"]),
+            })
+
+    # 兜底：整句里识别到药名但分段没匹配上
+    if not items:
+        for m in meds:
+            items.append({"name": m["name"], "dose": m.get("dose") or "",
+                          "times": [] if action == "stop" else (times or ["08:00"])})
+
+    # 描述文案：时间一致就说次数，不一致就逐个列
+    if action == "upsert" and items:
+        tset = {tuple(i["times"]) for i in items}
+        if len(tset) == 1:
+            t0 = sorted(tset)[0]
+            sched_desc = (f"每日 {len(t0)} 次（{'、'.join(t0)}）" if len(t0) > 1
+                          else f"每日 1 次（{t0[0]}）")
+        else:
+            sched_desc = "；".join(f"{i['name']} {'、'.join(i['times'])}" for i in items)
+
+    caution = ""
+    if action == "stop":
+        caution = ("如果这不是医生要求的，请不要自行停药。我只会把它从「用药打卡」清单里移除，"
+                   "不改变任何医疗建议。")
+    elif not times:
+        caution = "没有听清具体时间，先按 08:00 安排；如果你想改时间，直接说“改成晚上 8 点”。"
+
+    return {
+        "action": action,
+        "items": items,
+        "times": times,
+        "desc": sched_desc or ("从清单移除" if action == "stop" else "每日 1 次（08:00）"),
+        "caution": caution,
+    }
 
 
 def parse_profile_update(text: str) -> dict:

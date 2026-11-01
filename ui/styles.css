@@ -837,3 +837,22 @@ html.big .quick-tile span { font-size: 12.5px; }
 }
 .quick-chip2:hover { border-color: var(--primary); background: var(--primary-l); color: var(--primary-d); }
 html.big .quick-chip2 { font-size: 13.5px; padding: 9px 4px; }
+
+/* 用药计划变更确认卡 */
+.med-change { border-left: 4px solid var(--primary); }
+.ml-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.ml-row {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  background: #f8fafd; border-radius: 9px; padding: 8px 11px; font-size: 13px;
+}
+.ml-row b { font-size: 14px; }
+.ml-dose { color: var(--ink-2); }
+.ml-time { margin-left: auto; color: var(--primary-d); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ml-desc { font-size: 12px; color: var(--muted); margin-top: 7px; }
+.ml-actions { display: flex; gap: 9px; margin-top: 11px; flex-wrap: wrap; align-items: center; }
+.ml-done { font-size: 12.5px; color: var(--ink-2); }
+.ml-done.ok { color: var(--ok); font-weight: 700; }
+.ml-done.err { color: var(--danger); font-weight: 700; }
+html.big .ml-row { font-size: 15.5px; }
+html.big .ml-row b { font-size: 16.5px; }
+html.big .ml-done { font-size: 14.5px; }

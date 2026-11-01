@@ -215,9 +215,17 @@ class TestOrchestrator(unittest.TestCase):
         self.assertTrue(any(b["type"] == "alert" for b in r["blocks"]))
 
     def test_prescription_blocks(self):
-        r = orchestrator.handle("我想把二甲双胍停掉", user_id=TEST_USER, use_llm=False, save=False)
+        # 问“能不能停”属于医疗决策 → 处方红线
+        r = orchestrator.handle("我能不能把二甲双胍停掉", user_id=TEST_USER, use_llm=False, save=False)
         self.assertEqual(r["mode"], "safety")
         self.assertEqual(r["intent"], "prescription")
+
+    def test_stop_request_becomes_plan_change(self):
+        # 陈述“我想停掉X” → 当作清单变更，但仍要求确认并提示遵医嘱
+        r = orchestrator.handle("我想把二甲双胍停掉", user_id=TEST_USER, use_llm=False, save=False)
+        self.assertEqual(r["intent"], "med_plan")
+        self.assertTrue(any(b["type"] == "med_change" and b["action"] == "stop" for b in r["blocks"]))
+        self.assertIn("不要自行停药", r["reply"])
 
     def test_record_flow_offline(self):
         r = orchestrator.handle("今天血压 148/94", user_id=TEST_USER, use_llm=False, save=False)
@@ -362,6 +370,60 @@ class TestSecurityHardening(unittest.TestCase):
         self.assertTrue(r["ok"])
         r2 = orchestrator.handle("！！！", user_id=TEST_USER, use_llm=False, save=False)
         self.assertTrue(r2["ok"])
+
+
+class TestMedPlanChange(unittest.TestCase):
+    """用药计划变更：写入/移除都要先确认，确认前不得写库。"""
+
+    def test_parse_new_schedule(self):
+        plan = intent.parse_med_plan("我每天早上8点吃一片氨氯地平")
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["action"], "upsert")
+        self.assertEqual(plan["items"][0]["name"], "氨氯地平")
+        self.assertEqual(plan["items"][0]["times"], ["08:00"])
+
+    def test_parse_per_drug_schedule(self):
+        plan = intent.parse_med_plan("每天早上8点吃一片氨氯地平，晚上9点吃阿托伐他汀20mg")
+        times = {i["name"]: i["times"] for i in plan["items"]}
+        self.assertEqual(times["氨氯地平"], ["08:00"])
+        self.assertEqual(times["阿托伐他汀"], ["21:00"])
+
+    def test_parse_twice_daily(self):
+        plan = intent.parse_med_plan("二甲双胍改成一天两次，早晚各一次")
+        self.assertEqual(plan["items"][0]["times"], ["08:00", "19:00"])
+
+    def test_parse_stop(self):
+        plan = intent.parse_med_plan("把阿托伐他汀从打卡里删掉")
+        self.assertEqual(plan["action"], "stop")
+        self.assertEqual(plan["items"][0]["name"], "阿托伐他汀")
+
+    def test_advice_question_is_not_plan(self):
+        # “能不能停药”属于医疗决策，走处方红线，不当作计划变更
+        self.assertIsNone(intent.parse_med_plan("我能不能把氨氯地平停掉"))
+
+    def test_no_write_before_confirm(self):
+        before = len(medications.list_meds(TEST_USER))
+        r = orchestrator.handle("我每天早上8点吃一片氨氯地平", user_id=TEST_USER,
+                                use_llm=False, save=False)
+        after = len(medications.list_meds(TEST_USER))
+        self.assertEqual(before, after, "确认前不得写入用药计划")
+        self.assertTrue(any(b["type"] == "med_change" for b in r["blocks"]))
+        self.assertEqual(r["mode"], "rule")
+
+    def test_confirm_then_write(self):
+        medications.add_med(TEST_USER, "计划药", "5 mg", times=["08:00"])
+        meds = {m["name"]: m for m in medications.list_meds(TEST_USER)}
+        self.assertIn("计划药", meds)
+        self.assertTrue(medications.stop_med(TEST_USER, "计划药"))
+        meds = {m["name"]: m for m in medications.list_meds(TEST_USER)}
+        self.assertNotIn("计划药", meds)
+
+    def test_update_keeps_dose_when_omitted(self):
+        medications.add_med(TEST_USER, "保剂量药", "10 mg", times=["08:00"])
+        medications.add_med(TEST_USER, "保剂量药", "", times=["08:00", "19:00"])
+        meds = {m["name"]: m for m in medications.list_meds(TEST_USER)}
+        self.assertEqual(meds["保剂量药"]["dose"], "10 mg")
+        self.assertEqual(meds["保剂量药"]["times"], ["08:00", "19:00"])
 
 
 class TestToolWhitelist(unittest.TestCase):

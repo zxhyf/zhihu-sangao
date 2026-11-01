@@ -303,6 +303,33 @@ def check_med_safety() -> None:
            "急症回答同样不给家庭处理建议", f"模式={r['mode']}")
 
 
+# ---------------------------------------------------------------- 9.6 计划变更
+def check_med_plan() -> None:
+    head("九·六、用药计划变更（说一句就能改，但必须确认）")
+    from agent import orchestrator, intent as intent_mod
+
+    plan = intent_mod.parse_med_plan("每天早上8点吃一片氨氯地平，晚上9点吃阿托伐他汀20mg")
+    times = {i["name"]: i["times"] for i in plan["items"]} if plan else {}
+    ok = times.get("氨氯地平") == ["08:00"] and times.get("阿托伐他汀") == ["21:00"]
+    record("PASS" if ok else "FAIL", "按句拆分，各自时间不串",
+           " / ".join(f"{k} {'、'.join(v)}" for k, v in times.items()) or "解析失败")
+
+    before = len(medications.list_meds(VERIFY_USER))
+    r = orchestrator.handle("我每天早上8点吃一片氨氯地平", user_id=VERIFY_USER, use_llm=False, save=False)
+    after = len(medications.list_meds(VERIFY_USER))
+    ok = (r["intent"] == "med_plan" and before == after
+          and any(b["type"] == "med_change" for b in r["blocks"]))
+    record("PASS" if ok else "FAIL", "确认前不写库", f"计划条数 {before} → {after}")
+
+    stop_plan = intent_mod.parse_med_plan("把阿托伐他汀从打卡里删掉")
+    record("PASS" if stop_plan and stop_plan["action"] == "stop" else "FAIL",
+           "「不用吃了」识别为移除")
+
+    advice = intent_mod.parse_med_plan("我能不能把氨氯地平停掉")
+    record("PASS" if advice is None else "FAIL", "「能不能停药」不当成计划变更",
+           "交给处方红线处理")
+
+
 # ---------------------------------------------------------------- 10. 大模型
 def check_llm(enabled: bool = True) -> None:
     head("十、大模型连通性（可选，失败不影响功能）")
@@ -384,6 +411,7 @@ def main() -> int:
         check_lab()
         check_e2e(use_llm=not args.no_llm)
         check_med_safety()
+        check_med_plan()
         check_llm(enabled=not args.no_llm)
         check_anon([s.strip() for s in args.anon.split(",") if s.strip()])
     finally:

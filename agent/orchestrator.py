@@ -142,7 +142,7 @@ def handle(text: str, user_id: str = DEFAULT_USER, use_llm: bool = True,
             _save(user_id, "assistant", payload["reply"], payload["blocks"])
         return payload
 
-    if sec["level"] == "prescription":
+    if sec["level"] == "prescription" and intent != "med_plan":
         trace.append(_trace("safety", "warn", f"命中处方红线：{'、'.join(sec.get('matched', []))} → 锁定为不可调药回答"))
         payload = _prescription_response(text, sec, profile, blocks, trace, started)
         if save:
@@ -246,6 +246,13 @@ def handle(text: str, user_id: str = DEFAULT_USER, use_llm: bool = True,
             facts["lab"] = {"error": parsed.get("error", "")}
             trace.append(_trace("tool", "warn", "lab.parse 未识别到可入库指标，改为引导手动录入"))
 
+    elif intent == "med_plan" and parsed.get("med_plan"):
+        plan = parsed["med_plan"]
+        blocks.append(formatter.med_change_block(plan))
+        facts["med_plan"] = plan
+        trace.append(_trace("tool", "ok",
+                            f"生成用药计划变更草案（{plan['action']}）：等待用户确认后写入"))
+
     elif intent == "med_record" and meds_parsed:
         recorded_meds = []
         taken_at, time_desc = parse_time(text)
@@ -268,7 +275,7 @@ def handle(text: str, user_id: str = DEFAULT_USER, use_llm: bool = True,
                             f"（{taken_at[:16]} 入库）"))
 
     # ---------- 4.5 用药语境：结构性附加安全提示（不依赖模型是否记得说） ----------
-    if intent in ("interaction", "med_record", "profile"):
+    if intent in ("interaction", "med_record", "profile", "med_plan"):
         blocks.append(formatter.med_safety_block())
         trace.append(_trace("medguard", "ok", "已附加用药安全提示：不构成用药建议，请遵医嘱"))
 
@@ -294,7 +301,14 @@ def handle(text: str, user_id: str = DEFAULT_USER, use_llm: bool = True,
 
     # ---------- 6. 生成叙事 ----------
     reply, mode, llm_note = "", "local", ""
-    if use_llm and llm.CLIENT.available:
+    # 用药计划变更必须由系统说确定性文案：不能让模型说“已写入”，其实还在等确认
+    forced = ""
+    if intent == "med_plan" and parsed.get("med_plan"):
+        forced = formatter.med_plan_reply(parsed["med_plan"])
+    if forced:
+        reply, mode = forced, "rule"
+        trace.append(_trace("llm", "ok", "用药计划变更使用确定性文案，交由用户确认"))
+    elif use_llm and llm.CLIENT.available:
         try:
             msgs = prompts.build_messages(text, intent, profile, facts, chunks, _history(user_id))
             reply = llm.CLIENT.chat(msgs)

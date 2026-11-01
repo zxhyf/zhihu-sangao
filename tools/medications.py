@@ -25,6 +25,8 @@ def add_med(user_id: str, name: str, dose: str = "", frequency: str = "每日 1 
         "SELECT * FROM medications WHERE user_id=? AND name=? AND active=1", (user_id, name))
     times_json = json.dumps(times, ensure_ascii=False)
     if existing:
+        # 只改时间时不要把已有剂量清空
+        dose = (dose or "").strip() or (existing["dose"] or "")
         db.execute("UPDATE medications SET dose=?, frequency=?, times=?, purpose=? WHERE id=?",
                    (dose[:40], frequency[:20], times_json, purpose[:60], existing["id"]))
         mid = existing["id"]
@@ -32,7 +34,7 @@ def add_med(user_id: str, name: str, dose: str = "", frequency: str = "每日 1 
         mid = db.execute(
             """INSERT INTO medications (user_id, name, dose, frequency, times, purpose, active, created_at)
                VALUES (?,?,?,?,?,?,1,?)""",
-            (user_id, name, dose[:40], frequency[:20], times_json, purpose[:60], db.now_iso()),
+            (user_id, name, (dose or "").strip()[:40], frequency[:20], times_json, purpose[:60], db.now_iso()),
         )
     return {"ok": True, "id": mid, "name": name, "dose": dose, "frequency": frequency,
             "times": times, "purpose": purpose}

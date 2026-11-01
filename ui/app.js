@@ -507,6 +507,7 @@ function renderBlock(b, ctx) {
     case 'lab': return labCard(b);
     case 'cta': return ctaCard(b);
     case 'safety_note': return safetyNoteCard(b);
+    case 'med_change': return medChangeCard(b);
     default: return null;
   }
 }
@@ -958,6 +959,49 @@ async function sendMessage(text) {
 function autoGrow(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(140, el.scrollHeight) + 'px';
+}
+
+function medChangeCard(b) {
+  const el = document.createElement('div');
+  el.className = 'card med-change';
+  const isStop = b.action === 'stop';
+  const rows = (b.items || []).map(i => `
+    <div class="ml-row">
+      <b>${esc(i.name)}</b>
+      ${i.dose ? `<span class="ml-dose">${esc(i.dose)}</span>` : ''}
+      <span class="ml-time">${isStop ? '从打卡清单移除' : esc((i.times || []).join(' / ') || '08:00')}</span>
+    </div>`).join('');
+  el.innerHTML = `
+    <div class="card-title">${esc(b.title)} <span class="card-sub">${isStop ? '移除' : '写入'}前确认</span></div>
+    <div class="ml-list">${rows}</div>
+    ${b.desc ? `<div class="ml-desc">安排：${esc(b.desc)}</div>` : ''}
+    ${b.caution ? `<div class="med-inline-note">⚠️ ${esc(b.caution)}</div>` : ''}
+    <div class="ml-actions">
+      <button class="cta-btn" data-ok>确认${isStop ? '移除' : '写入'}</button>
+      <button class="pill-btn" data-cancel>取消</button>
+    </div>`;
+  const actions = el.querySelector('.ml-actions');
+  el.querySelector('[data-cancel]').onclick = () => {
+    actions.innerHTML = '<div class="ml-done">已取消，没有修改任何数据。</div>';
+  };
+  el.querySelector('[data-ok]').onclick = async () => {
+    actions.innerHTML = '<div class="ml-done">正在写入…</div>';
+    const r = await api('/api/meds/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: b.action, items: b.items }),
+    });
+    if (!r || !r.ok) {
+      actions.innerHTML = `<div class="ml-done err">${esc((r && r.error) || '写入失败')}</div>`;
+      return;
+    }
+    actions.innerHTML = `<div class="ml-done ok">✅ ${esc(r.reply)}</div>`;
+    toast(r.reply, 3200);
+    const boot = await api('/api/bootstrap');
+    state.boot = boot;
+    renderTasks(boot);
+    if (document.querySelector('#view-meds').classList.contains('active')) await renderMeds();
+  };
+  return el;
 }
 
 /* ---------------------------------------------------------------- 用药打卡页 */
