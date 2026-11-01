@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """自然语言理解层：意图识别 + 健康实体抽取（确定性规则，可解释、可测试）。
 
 不依赖任何第三方库；抽取结果全部可回溯到原文片段，便于在界面上展示“系统读到了什么”。
@@ -351,7 +351,7 @@ def parse_schedule(text: str) -> tuple[list[str], str]:
         if re.search(r"傍晚|晚上|晚饭后|晚餐后|晚饭", text):
             times.append("19:00")
 
-    times = sorted(dict.fromkeys(times))[:4]
+    times = sorted(dict.fromkeys(times))[:8]
     if not times:
         return [], ""
     desc = f"每日 {len(times)} 次（{'、'.join(times)}）" if len(times) > 1 else f"每日 1 次（{times[0]}）"

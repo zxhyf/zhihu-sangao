@@ -418,6 +418,35 @@ class TestMedPlanChange(unittest.TestCase):
         meds = {m["name"]: m for m in medications.list_meds(TEST_USER)}
         self.assertNotIn("计划药", meds)
 
+    def test_add_vs_update_is_distinguished(self):
+        # 清单里没有 → 新增
+        r = orchestrator.handle("我每天中午12点吃一片氯沙坦", user_id=TEST_USER,
+                                use_llm=False, save=False)
+        card = next(b for b in r["blocks"] if b["type"] == "med_change")
+        self.assertEqual(card["mode"], "add")
+        self.assertEqual(card["title"], "新增用药计划")
+        self.assertEqual(card["items"][0]["change"], "add")
+
+        # 已存在 → 变更
+        medications.add_med(TEST_USER, "氯沙坦", "50 mg", times=["12:00"])
+        r2 = orchestrator.handle("氯沙坦改成晚上8点", user_id=TEST_USER, use_llm=False, save=False)
+        card2 = next(b for b in r2["blocks"] if b["type"] == "med_change")
+        self.assertEqual(card2["mode"], "update")
+        self.assertEqual(card2["title"], "变更用药计划")
+        self.assertEqual(card2["items"][0]["change"], "update")
+        self.assertEqual(card2["items"][0]["times"], ["20:00"])
+
+    def test_noop_when_identical(self):
+        medications.add_med(TEST_USER, "氯沙坦", "50 mg", times=["12:00"])
+        r = orchestrator.handle("每天12点吃氯沙坦", user_id=TEST_USER, use_llm=False, save=False)
+        self.assertFalse(any(b["type"] == "med_change" for b in r["blocks"]))
+        self.assertIn("不用修改", r["reply"])
+
+    def test_more_than_four_slots(self):
+        plan = intent.parse_med_plan("每天8点、10点、12点、15点、18点、21点吃二甲双胍")
+        self.assertEqual(plan["items"][0]["times"],
+                         ["08:00", "10:00", "12:00", "15:00", "18:00", "21:00"])
+
     def test_update_keeps_dose_when_omitted(self):
         medications.add_med(TEST_USER, "保剂量药", "10 mg", times=["08:00"])
         medications.add_med(TEST_USER, "保剂量药", "", times=["08:00", "19:00"])

@@ -248,10 +248,38 @@ def handle(text: str, user_id: str = DEFAULT_USER, use_llm: bool = True,
 
     elif intent == "med_plan" and parsed.get("med_plan"):
         plan = parsed["med_plan"]
-        blocks.append(formatter.med_change_block(plan))
+        # 区分「添加计划」与「变更计划」：和当前用药清单比对
+        exists = {m["name"]: m for m in medications.list_meds(user_id)}
+        adds, updates = 0, 0
+        for it in plan["items"]:
+            cur = exists.get(it["name"])
+            if plan["action"] == "stop":
+                it["change"] = "remove"
+                it["prev_times"] = (cur or {}).get("times") or []
+            elif cur:
+                prev_times = cur.get("times") or []
+                new_times = it["times"] or ["08:00"]
+                same = (prev_times == new_times and
+                        (not it.get("dose") or it["dose"] == (cur.get("dose") or "")))
+                it["change"] = "same" if same else "update"
+                it["prev_times"] = prev_times
+                it["prev_dose"] = cur.get("dose") or ""
+                updates += 0 if same else 1
+            else:
+                it["change"] = "add"
+                it["prev_times"] = []
+                adds += 1
+        actionable = [it for it in plan["items"] if it.get("change") != "same"]
+        plan["mode"] = ("none" if plan["action"] != "stop" and not actionable else
+                        "add" if adds and not updates else
+                        "update" if updates and not adds else "mixed")
+        plan["noop"] = plan["mode"] == "none"
+        if not plan["noop"]:
+            blocks.append(formatter.med_change_block(plan))
         facts["med_plan"] = plan
         trace.append(_trace("tool", "ok",
-                            f"生成用药计划变更草案（{plan['action']}）：等待用户确认后写入"))
+                            f"生成用药计划草案（新增 {adds} / 变更 {updates} / 无变化 {len(plan['items']) - len(actionable)}）："
+                            + ("无需改动" if plan["noop"] else "等待用户确认后写入")))
 
     elif intent == "med_record" and meds_parsed:
         recorded_meds = []

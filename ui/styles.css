@@ -856,3 +856,13 @@ html.big .quick-chip2 { font-size: 13.5px; padding: 9px 4px; }
 html.big .ml-row { font-size: 15.5px; }
 html.big .ml-row b { font-size: 16.5px; }
 html.big .ml-done { font-size: 14.5px; }
+
+/* 变更卡上的「新增/变更/移除」标签 */
+.ml-tag {
+  font-size: 10.5px; padding: 1px 7px; border-radius: 6px; font-weight: 700;
+  vertical-align: 1px;
+}
+.ml-add { background: var(--primary-l); color: var(--primary-d); }
+.ml-update { background: var(--accent-l); color: #2358c4; }
+.ml-remove { background: var(--danger-l); color: var(--danger); }
+html.big .ml-tag { font-size: 12px; }

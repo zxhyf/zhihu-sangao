@@ -122,10 +122,14 @@ def cta_block(title: str, body: str, button: str, action: str) -> dict:
 
 def med_change_block(plan: dict) -> dict:
     """用药计划变更的「待确认」卡片：确认前不写库。"""
+    mode = plan.get("mode", "mixed")
+    title = {"add": "新增用药计划", "update": "变更用药计划"}.get(
+        mode, "用药计划变更" if plan.get("action") != "stop" else "移除用药计划")
     return {
         "type": "med_change",
         "action": plan.get("action", "upsert"),
-        "title": "确认用药计划变更",
+        "mode": mode,
+        "title": title,
         "items": plan.get("items", []),
         "desc": plan.get("desc", ""),
         "caution": plan.get("caution", ""),
@@ -135,30 +139,37 @@ def med_change_block(plan: dict) -> dict:
 def med_plan_reply(plan: dict) -> str:
     """用药计划变更的确定性文案：不写"已写入"，必须等用户确认。"""
     items = plan.get("items", [])
-    lines = []
+    if plan.get("noop"):
+        desc = "、".join(f"{i['name']} {'、'.join(i.get('times') or [])}" for i in items)
+        return (f"这和你现在的用药计划一致（{desc}），不用修改。\n"
+                "如果时间或剂量要变，直接说“改成晚上 8 点”这样的说法就行。")
     if plan.get("action") == "stop":
         names = "、".join(i["name"] for i in items)
-        lines = [
+        return "\n".join([
             "我先不动数据，等你确认。",
             f"- 要从「用药打卡」移除：**{names}**",
             "",
             "⚠️ 如果这不是医生的要求，请不要自行停药。确认后我只把它从打卡清单里删掉，"
             "不改变任何医疗建议，也不会调整剂量。",
-        ]
-    else:
-        for i in items:
-            times = "、".join(i.get("times") or []) or "08:00"
-            dose = f" {i['dose']}" if i.get("dose") else ""
-            lines.append(f"- **{i['name']}**{dose}　{times}")
-        lines = [
-            "我先不写数据，请你核对一下：",
-            *lines,
-            f"安排：{plan.get('desc') or '每日 1 次（08:00）'}",
-            "",
-            "确认后才会写进「用药打卡」，之后每天到点就能打卡。剂量与频次请以医生处方为准。",
-        ]
-        if plan.get("caution"):
-            lines.append(plan["caution"])
+        ])
+
+    lines = ["我先不写数据，请你核对一下："]
+    for i in items:
+        tag = "变更" if i.get("change") == "update" else "新增"
+        dose = f" {i['dose']}" if i.get("dose") else ""
+        now = "、".join(i.get("times") or []) or "08:00"
+        prev = "、".join(i.get("prev_times") or [])
+        if tag == "变更" and prev and prev != now:
+            lines.append(f"- **{i['name']}**{dose}　[{tag}] {prev} → **{now}**")
+        else:
+            lines.append(f"- **{i['name']}**{dose}　[{tag}] {now}")
+    lines += [
+        f"安排：{plan.get('desc') or '每日 1 次（08:00）'}",
+        "",
+        "确认后才会写进「用药打卡」，之后每天到点就能打卡。剂量与频次请以医生处方为准。",
+    ]
+    if plan.get("caution"):
+        lines.append(plan["caution"])
     return "\n".join(x for x in lines if x is not None)
 
 

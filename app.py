@@ -318,7 +318,8 @@ class Handler(BaseHTTPRequestHandler):
                 items = body.get("items") or []
                 if action not in ("upsert", "stop") or not items:
                     return self._json({"ok": False, "error": "参数不完整"}, 400)
-                added, removed = [], []
+                added, updated, removed = [], [], []
+                current = {m["name"] for m in medications.list_meds(user_id)}
                 for it in items:
                     name = (it.get("name") or "").strip()
                     if not name:
@@ -327,21 +328,26 @@ class Handler(BaseHTTPRequestHandler):
                         if medications.stop_med(user_id, name):
                             removed.append(name)
                     else:
-                        times = [t for t in (it.get("times") or ["08:00"]) if t][:6]
+                        times = [t for t in (it.get("times") or ["08:00"]) if t][:8]
                         freq = f"每日 {len(times)} 次" if len(times) > 1 else "每日 1 次"
                         medications.add_med(user_id, name, it.get("dose") or "", freq, times, "")
-                        added.append(name)
+                        (updated if name in current else added).append(name)
                 if action == "stop" and not removed:
                     return self._json({"ok": False,
                                        "error": "清单里没有这些药，未做修改。"}, 404)
                 if action == "stop":
                     reply = f"已从「用药打卡」清单移除：{'、'.join(removed)}。这只是停止打卡提醒，不代表可以停药。"
                 else:
-                    reply = f"已写入「用药打卡」：{'、'.join(added)}。之后可以在该页按时段打卡。"
+                    parts = []
+                    if added:
+                        parts.append(f"已添加：{'、'.join(added)}")
+                    if updated:
+                        parts.append(f"已更新：{'、'.join(updated)}")
+                    reply = "；".join(parts) + "。之后可以在「用药打卡」按时段打卡。"
                 auth.audit("med_plan_apply", ip=self.client_address[0],
-                           action=action, added=added, removed=removed)
+                           action=action, added=added, updated=updated, removed=removed)
                 return self._json({"ok": True, "action": action, "added": added,
-                                   "removed": removed, "reply": reply,
+                                   "updated": updated, "removed": removed, "reply": reply,
                                    "meds": medications.list_meds(user_id),
                                    "schedule": medications.today_schedule(user_id)})
 

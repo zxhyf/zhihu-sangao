@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """用药计划与打卡。
 
 三条硬规则（对应评审意见 P3 / P4）：
@@ -20,7 +20,7 @@ def add_med(user_id: str, name: str, dose: str = "", frequency: str = "每日 1 
     name = (name or "").strip()[:40]
     if not name:
         return {"ok": False, "error": "药名不能为空"}
-    times = [t for t in (times or ["08:00"]) if t][:6] or ["08:00"]
+    times = [t for t in (times or ["08:00"]) if t][:8] or ["08:00"]
     existing = db.query_one(
         "SELECT * FROM medications WHERE user_id=? AND name=? AND active=1", (user_id, name))
     times_json = json.dumps(times, ensure_ascii=False)

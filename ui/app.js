@@ -1,4 +1,4 @@
-/* =========================================================
+﻿/* =========================================================
    智护三高 · 前端逻辑（原生 JS，无任何第三方依赖）
    ========================================================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -965,19 +965,29 @@ function medChangeCard(b) {
   const el = document.createElement('div');
   el.className = 'card med-change';
   const isStop = b.action === 'stop';
-  const rows = (b.items || []).map(i => `
-    <div class="ml-row">
+  const tagText = { add: '新增', update: '变更', remove: '移除', same: '无变化' };
+  const btnText = isStop ? '确认移除'
+    : (b.mode === 'add' ? '确认添加' : (b.mode === 'update' ? '确认变更' : '确认保存'));
+  const rows = (b.items || []).map(i => {
+    const tag = tagText[i.change] || '';
+    const prev = (i.prev_times || []).join(' / ');
+    const now = (i.times || []).join(' / ') || '08:00';
+    const timeText = isStop ? '从打卡清单移除'
+      : (i.change === 'update' && prev && prev !== now ? `${prev} → <b>${now}</b>` : now);
+    return `<div class="ml-row">
       <b>${esc(i.name)}</b>
+      ${tag ? `<span class="ml-tag ml-${esc(i.change || 'add')}">${tag}</span>` : ''}
       ${i.dose ? `<span class="ml-dose">${esc(i.dose)}</span>` : ''}
-      <span class="ml-time">${isStop ? '从打卡清单移除' : esc((i.times || []).join(' / ') || '08:00')}</span>
-    </div>`).join('');
+      <span class="ml-time">${timeText}</span>
+    </div>`;
+  }).join('');
   el.innerHTML = `
     <div class="card-title">${esc(b.title)} <span class="card-sub">${isStop ? '移除' : '写入'}前确认</span></div>
     <div class="ml-list">${rows}</div>
     ${b.desc ? `<div class="ml-desc">安排：${esc(b.desc)}</div>` : ''}
     ${b.caution ? `<div class="med-inline-note">⚠️ ${esc(b.caution)}</div>` : ''}
     <div class="ml-actions">
-      <button class="cta-btn" data-ok>确认${isStop ? '移除' : '写入'}</button>
+      <button class="cta-btn" data-ok>${btnText}</button>
       <button class="pill-btn" data-cancel>取消</button>
     </div>`;
   const actions = el.querySelector('.ml-actions');

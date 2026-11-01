@@ -329,6 +329,23 @@ def check_med_plan() -> None:
     record("PASS" if advice is None else "FAIL", "「能不能停药」不当成计划变更",
            "交给处方红线处理")
 
+    multi = intent_mod.parse_med_plan("每天8点、10点、12点、15点、18点、21点吃二甲双胍")
+    n = len(multi["items"][0]["times"]) if multi else 0
+    record("PASS" if n == 6 else "FAIL", "一天最多可设 8 个时段", f"示例解析出 {n} 个时段")
+
+    r_add = orchestrator.handle("我每天中午12点吃一片氯沙坦", user_id=VERIFY_USER, use_llm=False, save=False)
+    card_add = next((b for b in r_add["blocks"] if b["type"] == "med_change"), None)
+    ok_add = bool(card_add) and card_add.get("mode") == "add"
+    record("PASS" if ok_add else "FAIL", "清单里没有的药 → 识别为「新增计划」",
+           card_add.get("title", "") if card_add else "未生成卡片")
+
+    medications.add_med(VERIFY_USER, "氯沙坦", "50 mg", times=["12:00"])
+    r_upd = orchestrator.handle("氯沙坦改成晚上8点", user_id=VERIFY_USER, use_llm=False, save=False)
+    card_upd = next((b for b in r_upd["blocks"] if b["type"] == "med_change"), None)
+    ok_upd = bool(card_upd) and card_upd.get("mode") == "update"
+    record("PASS" if ok_upd else "FAIL", "清单里已有的药 → 识别为「变更计划」",
+           card_upd.get("title", "") if card_upd else "未生成卡片")
+
 
 # ---------------------------------------------------------------- 10. 大模型
 def check_llm(enabled: bool = True) -> None:
