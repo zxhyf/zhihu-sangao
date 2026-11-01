@@ -1090,7 +1090,9 @@ async function renderMeds() {
       </div>`;
     row.querySelector('[data-edit]').onclick = async () => {
       const cur = (m.times || []).join(',');
-      const input = prompt(`「${m.name}」每天几点吃？用逗号分隔，最多 8 个\n例如：08:00,12:00,18:00,睡前`, cur);
+      const input = prompt(
+        `「${m.name}」每天几点吃？用逗号分隔，最多 8 个\n注意：这里会「整体替换」（不是追加）\n例如：08:00,12:00,18:00,睡前`,
+        cur);
       if (input === null) return;
       const periodHour = { 早上: '08:00', 早晨: '08:00', 上午: '08:00', 中午: '12:00',
                            下午: '15:00', 傍晚: '19:00', 晚上: '19:00', 睡前: '22:00' };
@@ -1114,11 +1116,10 @@ async function renderMeds() {
       if (bad) { toast(`时段格式应为 HH:MM（${bad} 不符合）`, 3000); return; }
       const r = await api('/api/meds/add', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: m.name, dose: m.dose || '', times,
-                               frequency: times.length > 1 ? `每日 ${times.length} 次` : '每日 1 次' }),
+        body: JSON.stringify({ name: m.name, dose: m.dose || '', times, op: 'replace' }),
       });
       if (!r || !r.ok) { toast(r && r.error ? r.error : '修改失败'); return; }
-      toast(`已更新「${m.name}」：${times.join(' / ')}`);
+      toast(r.message || `已更新「${m.name}」`, 3600);
       await renderMeds();
       const b = await api('/api/bootstrap');
       state.boot = b;
@@ -1302,12 +1303,11 @@ function bindUI() {
       if (bad) { toast(`时段格式应为 HH:MM，例如 08:00（${bad} 不符合）`, 3200); return; }
       const r = await api('/api/meds/add', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, dose: $('#medDose').value.trim(), times,
-                               frequency: times.length > 1 ? `每日 ${times.length} 次` : '每日 1 次' }),
+        body: JSON.stringify({ name, dose: $('#medDose').value.trim(), times, op: 'merge' }),
       });
       if (!r || !r.ok) { toast(r && r.error ? r.error : '添加失败'); return; }
       $('#medName').value = ''; $('#medDose').value = ''; $('#medTimes').value = '';
-      toast(`已添加「${name}」，可在今日服药里打卡`);
+      toast(r.message || `已添加「${name}」`, 3600);
       const b = await api('/api/bootstrap');
       state.boot = b;
       renderTasks(b);

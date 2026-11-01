@@ -125,7 +125,7 @@ python app.py
 │  ├─ styles.css               #   医疗风格设计系统 + 适老化大字模式
 │  └─ app.js                   #   对话、卡片、内联 SVG 图表、看板、知识库管理
 │
-├─ tests/test_system.py        # 73 项自动化回归测试
+├─ tests/test_system.py        # 74 项自动化回归测试
 ├─ verify.py                   # 一键核验脚本（62 项检查，答辩可现场跑）
 ├─ reports/                    # 导出的报告
 ├─ docs/                       # 参赛材料
@@ -146,7 +146,7 @@ python app.py
 ```bash
 python verify.py                               # 62 项检查，10 秒出结果
 python verify.py --anon "你的学校名,你的姓名"    # 顺带查匿名风险词
-python -m unittest discover -s tests -v        # 73 项单元测试
+python -m unittest discover -s tests -v        # 74 项单元测试
 ```
 
 人工核验路径、证据检查方法、"看起来不对其实正常"的清单，见 [`docs/核验清单.md`](docs/核验清单.md)。
@@ -242,7 +242,7 @@ A 类指南要点 6 篇：中国高血压防治指南（2024 修订版）、中�
 ## 七、运行测试与核验
 
 ```bash
-python -m unittest discover -s tests -v   # 73 项单元测试
+python -m unittest discover -s tests -v   # 74 项单元测试
 python verify.py                          # 62 项一键核验（含数据库/知识库/安全/端到端）
 ```
 
@@ -250,7 +250,7 @@ python verify.py                          # 62 项一键核验（含数据库/�
 趋势统计、药物联动、检验单解析与确认入库、方案结构、报告章节、RAG 检索与文档增删、
 编排器端到端、工具白名单。
 
-预期：`Ran 73 tests ... OK`；`verify.py` 输出 `PASS 59 / WARN 3 / FAIL 0`。
+预期：`Ran 74 tests ... OK`；`verify.py` 输出 `PASS 59 / WARN 3 / FAIL 0`。
 
 ---
 

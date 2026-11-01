@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """用药计划与打卡。
 
 三条硬规则（对应评审意见 P3 / P4）：
@@ -129,6 +129,50 @@ def log_dose(user_id: str, med_name: str, status: str = "taken", note: str = "",
     return {"ok": True, "med_name": med_name, "status": status, "slot": slot,
             "taken_at": ts, "day": day,
             "remaining": len([t for t in times if t not in _today_slots(user_id, med_name, day)])}
+
+
+def upsert_times(user_id: str, name: str, dose: str = "", times: list[str] | None = None,
+                 op: str = "merge") -> dict:
+    """统一入口：按「去重合并」或「整体替换」更新某个药的时段。
+
+    - op="merge"（默认）：保留原有安排，只补充没有重复的时段
+    - op="replace"：整体替换（用户在「改时段」里显式选择）
+    """
+    name = (name or "").strip()
+    if not name:
+        return {"ok": False, "error": "药名不能为空"}
+    new_times = [t for t in (times or []) if t][:8]
+    cur = db.query_one("SELECT * FROM medications WHERE user_id=? AND name=? AND active=1",
+                       (user_id, name))
+    try:
+        prev = json.loads(cur["times"]) if cur else []
+    except Exception:
+        prev = []
+
+    if op == "replace":
+        final = sorted(dict.fromkeys(new_times))[:8] or ["08:00"]
+    else:
+        final = sorted(dict.fromkeys(list(prev) + new_times))[:8] or ["08:00"]
+
+    added = [t for t in final if t not in prev]
+    freq = f"每日 {len(final)} 次" if len(final) > 1 else "每日 1 次"
+    add_med(user_id, name, dose, freq, final, "")
+
+    if not cur:
+        mode = "add"
+        message = f"已添加「{name}」：{'、'.join(final)}"
+    elif not added:
+        mode = "none"
+        message = f"「{name}」这些时段已经存在，未做修改"
+    elif op == "replace":
+        mode = "update"
+        message = f"已把「{name}」的时段改为 {'、'.join(final)}"
+    else:
+        mode = "append"
+        message = f"已为「{name}」追加 {'、'.join(added)}（原有 {'、'.join(prev)} 保留）"
+
+    return {"ok": True, "name": name, "times": final, "added": added,
+            "prev": prev, "mode": mode, "message": message}
 
 
 def logs(user_id: str = DEFAULT_USER, days: int = 14) -> list[dict]:

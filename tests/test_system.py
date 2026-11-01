@@ -483,6 +483,21 @@ class TestMedPlanChange(unittest.TestCase):
         self.assertEqual(it["change"], "update")
         self.assertEqual(it["final_times"], ["08:00", "19:00"])
 
+    def test_upsert_times_merges_by_default(self):
+        """界面上的「添加」也必须去重合并，不能覆盖。"""
+        medications.add_med(TEST_USER, "界面药", "5 mg", times=["08:00", "18:00"])
+        r = medications.upsert_times(TEST_USER, "界面药", "", ["12:00"])
+        self.assertEqual(r["mode"], "append")
+        self.assertEqual(r["times"], ["08:00", "12:00", "18:00"])
+        # 再加一次重复的 → 不修改
+        r2 = medications.upsert_times(TEST_USER, "界面药", "", ["12:00"])
+        self.assertEqual(r2["mode"], "none")
+        self.assertEqual(r2["times"], ["08:00", "12:00", "18:00"])
+        # 显式 replace 才整体覆盖
+        r3 = medications.upsert_times(TEST_USER, "界面药", "", ["09:00"], op="replace")
+        self.assertEqual(r3["mode"], "update")
+        self.assertEqual(r3["times"], ["09:00"])
+
     def test_update_keeps_dose_when_omitted(self):
         medications.add_med(TEST_USER, "保剂量药", "10 mg", times=["08:00"])
         medications.add_med(TEST_USER, "保剂量药", "", times=["08:00", "19:00"])

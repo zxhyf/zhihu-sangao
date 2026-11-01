@@ -311,10 +311,12 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/meds/add":
                 body = self._json_body()
-                res = medications.add_med(
+                # 默认「合并去重」：重复的时段自动跳过，不覆盖原有安排；
+                # 只有「改时段」显式传 op=replace 时才整体替换。
+                res = medications.upsert_times(
                     user_id, body.get("name") or "", body.get("dose") or "",
-                    body.get("frequency") or "每日 1 次", body.get("times") or ["08:00"],
-                    body.get("purpose") or "")
+                    body.get("times") or ["08:00"],
+                    (body.get("op") or "merge").lower())
                 code = 200 if res.get("ok") else 400
                 return self._json(res, code)
 
@@ -331,7 +333,6 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": "参数不完整"}, 400)
                 added, updated, removed = [], [], []
                 op = (body.get("op") or "merge").lower()
-                current = {m["name"]: m for m in medications.list_meds(user_id)}
                 for it in items:
                     name = (it.get("name") or "").strip()
                     if not name:
@@ -340,20 +341,13 @@ class Handler(BaseHTTPRequestHandler):
                         if medications.stop_med(user_id, name):
                             removed.append(name)
                         continue
-                    new_times = [t for t in (it.get("times") or []) if t][:8]
-                    prev_times = (current.get(name) or {}).get("times") or []
-                    if op == "replace":
-                        times = sorted(dict.fromkeys(new_times))[:8] or ["08:00"]
-                    else:
-                        # 合并去重：保留原有安排，只补充没重复的时段
-                        times = sorted(dict.fromkeys(list(prev_times) + new_times))[:8] or ["08:00"]
-                    freq = f"每日 {len(times)} 次" if len(times) > 1 else "每日 1 次"
-                    medications.add_med(user_id, name, it.get("dose") or "", freq, times, "")
-                    if name in current:
-                        updated.append({"name": name, "times": times,
-                                        "added": [t for t in times if t not in prev_times]})
-                    else:
+                    res = medications.upsert_times(user_id, name, it.get("dose") or "",
+                                                   it.get("times") or ["08:00"], op)
+                    if res.get("mode") == "add":
                         added.append(name)
+                    else:
+                        updated.append({"name": name, "times": res["times"],
+                                        "added": res["added"], "mode": res["mode"]})
                 if action == "stop" and not removed:
                     return self._json({"ok": False,
                                        "error": "清单里没有这些药，未做修改。"}, 404)
