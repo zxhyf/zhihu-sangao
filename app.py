@@ -330,7 +330,8 @@ class Handler(BaseHTTPRequestHandler):
                 if action not in ("upsert", "stop") or not items:
                     return self._json({"ok": False, "error": "参数不完整"}, 400)
                 added, updated, removed = [], [], []
-                current = {m["name"] for m in medications.list_meds(user_id)}
+                op = (body.get("op") or "merge").lower()
+                current = {m["name"]: m for m in medications.list_meds(user_id)}
                 for it in items:
                     name = (it.get("name") or "").strip()
                     if not name:
@@ -338,11 +339,21 @@ class Handler(BaseHTTPRequestHandler):
                     if action == "stop":
                         if medications.stop_med(user_id, name):
                             removed.append(name)
+                        continue
+                    new_times = [t for t in (it.get("times") or []) if t][:8]
+                    prev_times = (current.get(name) or {}).get("times") or []
+                    if op == "replace":
+                        times = sorted(dict.fromkeys(new_times))[:8] or ["08:00"]
                     else:
-                        times = [t for t in (it.get("times") or ["08:00"]) if t][:8]
-                        freq = f"每日 {len(times)} 次" if len(times) > 1 else "每日 1 次"
-                        medications.add_med(user_id, name, it.get("dose") or "", freq, times, "")
-                        (updated if name in current else added).append(name)
+                        # 合并去重：保留原有安排，只补充没重复的时段
+                        times = sorted(dict.fromkeys(list(prev_times) + new_times))[:8] or ["08:00"]
+                    freq = f"每日 {len(times)} 次" if len(times) > 1 else "每日 1 次"
+                    medications.add_med(user_id, name, it.get("dose") or "", freq, times, "")
+                    if name in current:
+                        updated.append({"name": name, "times": times,
+                                        "added": [t for t in times if t not in prev_times]})
+                    else:
+                        added.append(name)
                 if action == "stop" and not removed:
                     return self._json({"ok": False,
                                        "error": "清单里没有这些药，未做修改。"}, 404)
@@ -353,10 +364,15 @@ class Handler(BaseHTTPRequestHandler):
                     if added:
                         parts.append(f"已添加：{'、'.join(added)}")
                     if updated:
-                        parts.append(f"已更新：{'、'.join(updated)}")
-                    reply = "；".join(parts) + "。之后可以在「用药打卡」按时段打卡。"
-                auth.audit("med_plan_apply", ip=self.client_address[0],
-                           action=action, added=added, updated=updated, removed=removed)
+                        detail = "；".join(
+                            f"{u['name']} 现在 {'、'.join(u['times'])}"
+                            + (f"（新增 {'、'.join(u['added'])}）" if u["added"] else "（无新增）")
+                            for u in updated)
+                        parts.append(f"已更新：{detail}")
+                    reply = "；".join(parts) + "。"
+                auth.audit("med_plan_apply", ip=self.client_address[0], action=action,
+                           op=op, added=added, updated=[u["name"] for u in updated],
+                           removed=removed)
                 return self._json({"ok": True, "action": action, "added": added,
                                    "updated": updated, "removed": removed, "reply": reply,
                                    "meds": medications.list_meds(user_id),

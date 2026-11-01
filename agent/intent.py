@@ -308,6 +308,8 @@ RECUR_WORDS = ("每天", "每日", "每晚", "每早", "每次", "一日", "长�
                "常规", "平时", "一直", "固定")
 PLAN_VERBS = ("改成", "改为", "调整为", "调整成", "加入", "加进", "加上", "安排", "设定",
               "设个提醒", "记到", "录入到", "改到")
+# 明确表示「整体替换」的说法；没有这些词时一律按「合并去重」处理
+REPLACE_VERBS = ("改成", "改为", "调整为", "调整成", "改到")
 STOP_PATTERN = re.compile(
     r"(停(用|掉|药)|不(再|用|需要|想|打算)?吃|不用吃|不需要吃|删(掉|除)|移(除|出|走)|去掉|取消)")
 ADVICE_QUESTION = re.compile(r"(能不能|可不可以|能否|要不要|该不该|是不是可以|是否)")
@@ -456,6 +458,7 @@ def parse_med_plan(text: str) -> dict | None:
 
     return {
         "action": action,
+        "op": "replace" if any(v in t for v in REPLACE_VERBS) else "merge",
         "items": items,
         "times": times,
         "desc": sched_desc or ("从清单移除" if action == "stop" else "每日 1 次（08:00）"),

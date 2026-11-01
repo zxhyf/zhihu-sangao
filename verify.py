@@ -346,6 +346,20 @@ def check_med_plan() -> None:
     record("PASS" if ok_upd else "FAIL", "清单里已有的药 → 识别为「变更计划」",
            card_upd.get("title", "") if card_upd else "未生成卡片")
 
+    # 合并去重：新说法不能覆盖旧安排
+    medications.add_med(VERIFY_USER, "缬沙坦", "80 mg", times=["08:00", "12:00"])
+    r_mg = orchestrator.handle("我每天18点吃缬沙坦", user_id=VERIFY_USER, use_llm=False, save=False)
+    card_mg = next((b for b in r_mg["blocks"] if b["type"] == "med_change"), None)
+    it = card_mg["items"][0] if card_mg else {}
+    ok_mg = (it.get("change") == "append" and it.get("final_times") == ["08:00", "12:00", "18:00"])
+    record("PASS" if ok_mg else "FAIL", "新时段是「追加」，不覆盖原有安排",
+           f"现有 {it.get('prev_times')} + 新增 {it.get('added_times')} → {it.get('final_times')}")
+
+    before = {m["name"]: m["times"] for m in medications.list_meds(VERIFY_USER)}
+    after = orchestrator.handle("我每天8点吃缬沙坦", user_id=VERIFY_USER, use_llm=False, save=False)
+    record("PASS" if not any(b["type"] == "med_change" for b in after["blocks"]) else "FAIL",
+           "重复的时段不会被加第二遍", "直接回复无需修改")
+
 
 # ---------------------------------------------------------------- 10. 大模型
 def check_llm(enabled: bool = True) -> None:

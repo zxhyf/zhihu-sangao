@@ -965,15 +965,20 @@ function medChangeCard(b) {
   const el = document.createElement('div');
   el.className = 'card med-change';
   const isStop = b.action === 'stop';
-  const tagText = { add: '新增', update: '变更', remove: '移除', same: '无变化' };
+  const tagText = { add: '新增', update: '变更', append: '追加', remove: '移除', same: '无变化' };
   const btnText = isStop ? '确认移除'
-    : (b.mode === 'add' ? '确认添加' : (b.mode === 'update' ? '确认变更' : '确认保存'));
+    : (b.mode === 'add' ? '确认添加'
+      : b.mode === 'append' ? '确认追加'
+        : (b.mode === 'update' ? '确认变更' : '确认保存'));
   const rows = (b.items || []).map(i => {
     const tag = tagText[i.change] || '';
     const prev = (i.prev_times || []).join(' / ');
-    const now = (i.times || []).join(' / ') || '08:00';
-    const timeText = isStop ? '从打卡清单移除'
-      : (i.change === 'update' && prev && prev !== now ? `${prev} → <b>${now}</b>` : now);
+    const now = (i.final_times || i.times || []).join(' / ') || '08:00';
+    const added = (i.added_times || []).join(' / ');
+    let timeText = now;
+    if (isStop) timeText = '从打卡清单移除';
+    else if (i.change === 'append') timeText = `+${added}（现有 ${prev} → ${now}）`;
+    else if (i.change === 'update' && prev && prev !== now) timeText = `${prev} → <b>${now}</b>`;
     return `<div class="ml-row">
       <b>${esc(i.name)}</b>
       ${tag ? `<span class="ml-tag ml-${esc(i.change || 'add')}">${tag}</span>` : ''}
@@ -998,7 +1003,7 @@ function medChangeCard(b) {
     actions.innerHTML = '<div class="ml-done">正在写入…</div>';
     const r = await api('/api/meds/apply', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: b.action, items: b.items }),
+      body: JSON.stringify({ action: b.action, items: b.items, op: b.op || 'merge' }),
     });
     if (!r || !r.ok) {
       actions.innerHTML = `<div class="ml-done err">${esc((r && r.error) || '写入失败')}</div>`;
@@ -1027,8 +1032,13 @@ async function renderMeds() {
     <div class="kpi"><b>${adh.rate || 0}%</b><span>7 天依从率</span></div>
     <div class="kpi"><b>${meds.length}</b><span>在服药物</span></div>`;
   $('#medsTodayHint').textContent = schedule.length
-    ? `${doneN}/${schedule.length} 已完成`
+    ? `${doneN}/${schedule.length} 已完成 · 共 ${schedule.length} 个时段 / ${meds.length} 种药`
     : '还没有登记用药';
+  const listHint = $('#medListHint');
+  if (listHint) {
+    const totalSlots = meds.reduce((n, m) => n + ((m.times || []).length || 1), 0);
+    listHint.textContent = `${meds.length} 种药 · 共 ${totalSlots} 个时段（单药最多 8）`;
+  }
 
   // 今日服药时间表
   const sch = $('#medsSchedule');
@@ -1074,7 +1084,46 @@ async function renderMeds() {
     row.innerHTML = `
       <div><div class="med-name">${esc(m.name)} <span class="med-meta">${esc(m.dose || '')}</span></div>
         <div class="med-meta">${esc(m.frequency || '')} · ${esc((m.times || []).join(' / '))}</div></div>
-      <button class="ghost tiny" data-stop="${esc(m.name)}">停用</button>`;
+      <div class="med-actions">
+        <button class="ghost tiny" data-edit="${esc(m.name)}">改时段</button>
+        <button class="ghost tiny" data-stop="${esc(m.name)}">停用</button>
+      </div>`;
+    row.querySelector('[data-edit]').onclick = async () => {
+      const cur = (m.times || []).join(',');
+      const input = prompt(`「${m.name}」每天几点吃？用逗号分隔，最多 8 个\n例如：08:00,12:00,18:00,睡前`, cur);
+      if (input === null) return;
+      const periodHour = { 早上: '08:00', 早晨: '08:00', 上午: '08:00', 中午: '12:00',
+                           下午: '15:00', 傍晚: '19:00', 晚上: '19:00', 睡前: '22:00' };
+      const times = input.split(/[,，、\s]+/).filter(Boolean).map(t => {
+        const hm = t.match(/^(\d{1,2})[:：](\d{2})$/);
+        if (hm) return hm[1].padStart(2, '0') + ':' + hm[2];
+        const pt = t.match(/^(早上|早晨|上午|中午|下午|傍晚|晚上|睡前)(\d{1,2})?[点时]?$/);
+        if (pt) {
+          if (pt[2]) {
+            let h = Number(pt[2]);
+            if (['下午', '傍晚', '晚上'].includes(pt[1]) && h < 12) h += 12;
+            return String(h).padStart(2, '0') + ':00';
+          }
+          return periodHour[pt[1]] || '';
+        }
+        return t;
+      }).filter(Boolean);
+      if (!times.length) { toast('至少填一个时段'); return; }
+      if (times.length > 8) { toast('单药最多 8 个时段'); return; }
+      const bad = times.find(t => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t));
+      if (bad) { toast(`时段格式应为 HH:MM（${bad} 不符合）`, 3000); return; }
+      const r = await api('/api/meds/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: m.name, dose: m.dose || '', times,
+                               frequency: times.length > 1 ? `每日 ${times.length} 次` : '每日 1 次' }),
+      });
+      if (!r || !r.ok) { toast(r && r.error ? r.error : '修改失败'); return; }
+      toast(`已更新「${m.name}」：${times.join(' / ')}`);
+      await renderMeds();
+      const b = await api('/api/bootstrap');
+      state.boot = b;
+      renderTasks(b);
+    };
     row.querySelector('[data-stop]').onclick = async () => {
       if (!confirm(`停药要由医生决定。这里只是把它从打卡清单里移出，确定要移除「${m.name}」吗？`)) return;
       await api('/api/meds/stop', {

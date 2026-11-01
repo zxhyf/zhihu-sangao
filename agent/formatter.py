@@ -123,12 +123,14 @@ def cta_block(title: str, body: str, button: str, action: str) -> dict:
 def med_change_block(plan: dict) -> dict:
     """用药计划变更的「待确认」卡片：确认前不写库。"""
     mode = plan.get("mode", "mixed")
-    title = {"add": "新增用药计划", "update": "变更用药计划"}.get(
-        mode, "用药计划变更" if plan.get("action") != "stop" else "移除用药计划")
+    title = {"add": "新增用药计划", "append": "追加用药时段",
+             "update": "变更用药计划"}.get(
+        mode, "用药计划调整" if plan.get("action") != "stop" else "移除用药计划")
     return {
         "type": "med_change",
         "action": plan.get("action", "upsert"),
         "mode": mode,
+        "op": plan.get("op", "merge"),
         "title": title,
         "items": plan.get("items", []),
         "desc": plan.get("desc", ""),
@@ -155,18 +157,25 @@ def med_plan_reply(plan: dict) -> str:
 
     lines = ["我先不写数据，请你核对一下："]
     for i in items:
-        tag = "变更" if i.get("change") == "update" else "新增"
+        tag = {"add": "新增", "update": "变更", "append": "追加",
+               "same": "无变化"}.get(i.get("change"), "新增")
         dose = f" {i['dose']}" if i.get("dose") else ""
-        now = "、".join(i.get("times") or []) or "08:00"
         prev = "、".join(i.get("prev_times") or [])
-        if tag == "变更" and prev and prev != now:
-            lines.append(f"- **{i['name']}**{dose}　[{tag}] {prev} → **{now}**")
+        final = "、".join(i.get("final_times") or i.get("times") or [])
+        added = "、".join(i.get("added_times") or [])
+        if tag == "追加":
+            lines.append(f"- **{i['name']}**{dose}　[{tag}] +{added}（现有 {prev} → {final}）")
+        elif tag == "变更":
+            lines.append(f"- **{i['name']}**{dose}　[{tag}] {prev} → **{final}**")
         else:
-            lines.append(f"- **{i['name']}**{dose}　[{tag}] {now}")
+            lines.append(f"- **{i['name']}**{dose}　[{tag}] {final}")
     lines += [
         f"安排：{plan.get('desc') or '每日 1 次（08:00）'}",
         "",
-        "确认后才会写进「用药打卡」，之后每天到点就能打卡。剂量与频次请以医生处方为准。",
+        "确认后才会写进「用药打卡」。只会补充缺失的时段，不会删掉你已有的安排。"
+        if plan.get("op") != "replace"
+        else "确认后会按上面的时段整体替换该药的计划。",
+        "剂量与频次请以医生处方为准。",
     ]
     if plan.get("caution"):
         lines.append(plan["caution"])

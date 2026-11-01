@@ -866,3 +866,9 @@ html.big .ml-done { font-size: 14.5px; }
 .ml-update { background: var(--accent-l); color: #2358c4; }
 .ml-remove { background: var(--danger-l); color: var(--danger); }
 html.big .ml-tag { font-size: 12px; }
+
+/* 用药清单每行的操作 */
+.med-actions { display: flex; gap: 4px; align-items: center; flex: 0 0 auto; }
+.med-actions .ghost.tiny { padding: 4px 6px; }
+html.big .med-actions .ghost.tiny { font-size: 14px; }
+.ml-append { background: #e8f6ee; color: #18854a; }

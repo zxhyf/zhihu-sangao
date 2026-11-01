@@ -248,37 +248,65 @@ def handle(text: str, user_id: str = DEFAULT_USER, use_llm: bool = True,
 
     elif intent == "med_plan" and parsed.get("med_plan"):
         plan = parsed["med_plan"]
-        # 区分「添加计划」与「变更计划」：和当前用药清单比对
+        # 默认「合并去重」：只把新的时段加进去，不覆盖原有计划；
+        # 只有用户明确说「改成/改为/调整为」时才整体替换。
         exists = {m["name"]: m for m in medications.list_meds(user_id)}
-        adds, updates = 0, 0
+        adds, updates, appends = 0, 0, 0
         for it in plan["items"]:
             cur = exists.get(it["name"])
             if plan["action"] == "stop":
                 it["change"] = "remove"
                 it["prev_times"] = (cur or {}).get("times") or []
-            elif cur:
-                prev_times = cur.get("times") or []
-                new_times = it["times"] or ["08:00"]
-                same = (prev_times == new_times and
-                        (not it.get("dose") or it["dose"] == (cur.get("dose") or "")))
-                it["change"] = "same" if same else "update"
-                it["prev_times"] = prev_times
-                it["prev_dose"] = cur.get("dose") or ""
-                updates += 0 if same else 1
+                it["final_times"] = []
+                continue
+
+            prev_times = (cur or {}).get("times") or []
+            new_times = [t for t in (it["times"] or []) if t] or ["08:00"]
+            if plan.get("op") == "replace":
+                final_times = sorted(dict.fromkeys(new_times))[:8]
             else:
+                final_times = sorted(dict.fromkeys(list(prev_times) + new_times))[:8]
+
+            it["prev_times"] = prev_times
+            it["final_times"] = final_times
+            it["added_times"] = [t for t in final_times if t not in prev_times]
+            it["dup_times"] = [t for t in new_times if t in prev_times]
+
+            if not cur:
                 it["change"] = "add"
-                it["prev_times"] = []
                 adds += 1
+            elif final_times == prev_times:
+                it["change"] = "same"
+                it["prev_dose"] = cur.get("dose") or ""
+            elif plan.get("op") == "replace":
+                it["change"] = "update"
+                it["prev_dose"] = cur.get("dose") or ""
+                updates += 1
+            else:
+                it["change"] = "append"
+                it["prev_dose"] = cur.get("dose") or ""
+                appends += 1
         actionable = [it for it in plan["items"] if it.get("change") != "same"]
+        # 描述按「合并后的最终安排」来写，而不是只描述这次说了几个点
+        finals = [it.get("final_times") or [] for it in plan["items"] if it.get("final_times")]
+        if len(plan["items"]) == 1 and finals and finals[0]:
+            f = finals[0]
+            plan["desc"] = (f"每日 {len(f)} 次（{'、'.join(f)}）" if len(f) > 1
+                            else f"每日 1 次（{f[0]}）")
+        elif len(plan["items"]) > 1:
+            plan["desc"] = "；".join(
+                f"{it['name']} {'、'.join(it.get('final_times') or [])}"
+                for it in plan["items"] if it.get("final_times"))
         plan["mode"] = ("none" if plan["action"] != "stop" and not actionable else
-                        "add" if adds and not updates else
-                        "update" if updates and not adds else "mixed")
+                        "add" if adds and not (updates or appends) else
+                        "append" if appends and not (adds or updates) else
+                        "update" if updates and not (adds or appends) else "mixed")
         plan["noop"] = plan["mode"] == "none"
         if not plan["noop"]:
             blocks.append(formatter.med_change_block(plan))
         facts["med_plan"] = plan
         trace.append(_trace("tool", "ok",
-                            f"生成用药计划草案（新增 {adds} / 变更 {updates} / 无变化 {len(plan['items']) - len(actionable)}）："
+                            f"生成用药计划草案（新增 {adds} / 追加时段 {appends} / 整体变更 {updates} / 无变化 {len(plan['items']) - len(actionable)}）："
                             + ("无需改动" if plan["noop"] else "等待用户确认后写入")))
 
     elif intent == "med_record" and meds_parsed:

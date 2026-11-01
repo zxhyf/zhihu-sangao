@@ -457,6 +457,32 @@ class TestMedPlanChange(unittest.TestCase):
         times, _ = intent.parse_schedule("每天8:00、12:30、18:00、21:00")
         self.assertEqual(times, ["08:00", "12:30", "18:00", "21:00"])
 
+    def test_merge_adds_only_new_times(self):
+        """默认是合并去重：新时段补进去，原有安排保留。"""
+        medications.add_med(TEST_USER, "缬沙坦", "80 mg", times=["08:00", "12:00"])
+        r = orchestrator.handle("我每天18点吃缬沙坦", user_id=TEST_USER, use_llm=False, save=False)
+        it = next(b for b in r["blocks"] if b["type"] == "med_change")["items"][0]
+        self.assertEqual(it["change"], "append")
+        self.assertEqual(it["final_times"], ["08:00", "12:00", "18:00"])
+        self.assertEqual(it["added_times"], ["18:00"])
+        # 确认前不写库
+        meds = {m["name"]: m for m in medications.list_meds(TEST_USER)}
+        self.assertEqual(meds["缬沙坦"]["times"], ["08:00", "12:00"])
+
+    def test_duplicate_time_is_not_added_twice(self):
+        medications.add_med(TEST_USER, "格列美脲", "2 mg", times=["08:00", "12:00"])
+        r = orchestrator.handle("我每天8点吃格列美脲", user_id=TEST_USER, use_llm=False, save=False)
+        self.assertFalse(any(b["type"] == "med_change" for b in r["blocks"]))
+        self.assertIn("不用修改", r["reply"])
+
+    def test_explicit_change_replaces(self):
+        medications.add_med(TEST_USER, "阿卡波糖", "50 mg", times=["08:00", "12:00"])
+        r = orchestrator.handle("阿卡波糖改成一天两次，早晚各一次", user_id=TEST_USER,
+                                use_llm=False, save=False)
+        it = next(b for b in r["blocks"] if b["type"] == "med_change")["items"][0]
+        self.assertEqual(it["change"], "update")
+        self.assertEqual(it["final_times"], ["08:00", "19:00"])
+
     def test_update_keeps_dose_when_omitted(self):
         medications.add_med(TEST_USER, "保剂量药", "10 mg", times=["08:00"])
         medications.add_med(TEST_USER, "保剂量药", "", times=["08:00", "19:00"])
