@@ -23,7 +23,7 @@
     <div class="demo-strip" id="demoStrip" hidden>
       <span class="demo-dot"></span>
       <div class="demo-text">当前含 <b id="demoCount">0</b> 条<b>演示数据（合成，非真实病历）</b></div>
-      <button class="demo-clear" id="demoClearBtn">清除</button>
+      <button class="demo-clear" id="demoResetBtn">恢复</button>
     </div>
 
     <div class="side-scroll">
@@ -85,13 +85,11 @@
 
       <section class="panel">
         <div class="panel-head">
-          <span class="panel-title">知识库</span>
-          <button class="ghost tiny" id="openKbBtn">管理</button>
+          <span class="panel-title">指南库</span>
+          <button class="ghost tiny" id="openKbBtn">查看</button>
         </div>
         <div class="kb-line">
-          <span id="kbCount">0 篇文档</span>
-          <span class="dot-sep">·</span>
-          <span id="kbChunk">0 个片段</span>
+          <span id="kbCount">0 篇指南</span>
         </div>
         <div class="kb-line small">
           <span id="drugStat">—</span>
@@ -113,12 +111,10 @@
         <button class="tab active" data-view="chat">对话</button>
         <button class="tab" data-view="meds">用药打卡</button>
         <button class="tab" data-view="dash">健康看板</button>
-        <button class="tab" data-view="tools">能力与边界</button>
+        <button class="tab" data-view="safety">安全说明</button>
       </div>
       <div class="top-actions">
         <button class="pill-btn" id="bigFontBtn" title="适老化大字模式">A+</button>
-        <button class="pill-btn" id="seedBtn" title="写入一组演示数据">演示数据</button>
-        <button class="pill-btn danger" id="clearBtn" title="清空本地数据">清空</button>
       </div>
     </header>
 
@@ -206,31 +202,60 @@
       </div>
     </section>
 
-    <!-- 能力与边界视图 -->
-    <section class="view" id="view-tools">
+    <!-- 安全说明视图 -->
+    <section class="view" id="view-safety">
       <div class="dash-scroll">
-        <div class="dash-head"><h2>智能体能做什么、不能做什么</h2></div>
-        <div class="tool-wrap">
-          <div class="tool-col">
-            <h3>受控工具（白名单）</h3>
-            <div id="toolList" class="tool-list"></div>
-          </div>
-          <div class="tool-col">
-            <h3>明确的边界</h3>
-            <div class="forbid-box">
-              <p>以下能力在本系统中被<b>代码级禁用</b>，不是靠提示词约束：</p>
-              <ul id="forbidList"></ul>
-            </div>
-            <h3 style="margin-top:22px">安全网关联锁</h3>
-            <div class="flow">
-              <div class="flow-step"><b>1</b> 安全网关扫描红旗症状与调药请求</div>
+        <div class="dash-head"><h2>安全说明：这个系统做什么、不做什么</h2></div>
+
+        <div class="safety-grid">
+          <div class="card">
+            <div class="card-title">拦截流程 <span class="card-sub">每一步都在代码里</span></div>
+            <div class="flow" style="margin-top:10px">
+              <div class="flow-step"><b>1</b> 每条输入先过安全网关：扫描红旗症状与调药请求</div>
               <div class="flow-arrow">↓</div>
               <div class="flow-step"><b>2</b> 命中即锁定输出，大模型不参与</div>
               <div class="flow-arrow">↓</div>
-              <div class="flow-step"><b>3</b> 未命中的问题才进入工具调用与生成</div>
+              <div class="flow-step"><b>3</b> 未命中的问题才进入数据工具与指南检索</div>
               <div class="flow-arrow">↓</div>
               <div class="flow-step"><b>4</b> 每条回复附来源与免责声明</div>
             </div>
+          </div>
+
+          <div class="forbid-box">
+            <p>以下能力在本系统中被<b>代码级禁用</b>，不是靠提示词约束：</p>
+            <ul id="forbidList">
+              <li>疾病诊断</li>
+              <li>开具处方</li>
+              <li>调整药物剂量</li>
+              <li>建议停药或换药</li>
+              <li>替代医生</li>
+              <li>急救判断</li>
+              <li>承诺疗效</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <div class="card-title">遇到这些情况，系统不会给建议，只会让你立即就医</div>
+          <div class="redflag-grid">
+            <div>胸痛、胸闷压榨感超过 15 分钟</div>
+            <div>呼吸困难、喘不上气、不能平卧</div>
+            <div>突发口角歪斜、言语不清、一侧肢体无力</div>
+            <div>剧烈头痛、喷射性呕吐</div>
+            <div>意识模糊、晕倒、抽搐</div>
+            <div>血糖 &lt; 3.9 或 ≥ 16.7 mmol/L、疑似酮症</div>
+            <div>血压 ≥ 180/110 mmHg 伴症状</div>
+            <div>甘油三酯 ≥ 5.6 mmol/L 伴剧烈上腹痛</div>
+          </div>
+          <div class="safety-note" style="margin-top:12px">
+            <div class="sn-head"><span class="sn-icon">⚠️</span>关于本系统</div>
+            <ul>
+              <li>它是<b>健康管理辅助工具</b>：帮你记住数据、看懂趋势、安排可执行的事，并提醒你什么时候该去医院。</li>
+              <li>它<b>不是医疗器械</b>，不做诊断、不开处方、不调整药物剂量、不替代医生。</li>
+              <li>页面中的演示数据为<b>合成的模拟数据</b>，不含任何真实患者信息。</li>
+              <li>指南内容为公开发布资料的整理，正式引用请回到原文核对最新版本。</li>
+            </ul>
+            <div class="sn-foot">本建议不构成诊疗意见，请遵医嘱。</div>
           </div>
         </div>
       </div>
@@ -238,34 +263,22 @@
   </main>
 </div>
 
-<!-- ============ 知识库抽屉 ============ -->
+<!-- ============ 指南库（只读） ============ -->
 <div class="drawer-mask" id="kbMask"></div>
 <div class="drawer" id="kbDrawer">
   <div class="drawer-head">
-    <h3>知识库管理</h3>
+    <h3>指南库</h3>
     <button class="ghost" id="closeKbBtn">关闭</button>
   </div>
   <p class="drawer-desc">
-    知识库目录：<code id="kbDir">knowledge/docs</code><br />
-    把 <b>.md / .txt / .docx</b> 文件拖到下面，或用“选择文件”导入，系统会自动切分、建立索引，并在回答中标注来源。
+    系统回答时会先在这里检索，并标注出处。以下为国家卫生健康委、中华医学会等公开发布的指南与规范
+    （本系统只做了要点整理，不转载全文）。
   </p>
-  <div class="drop-zone" id="dropZone">
-    <div class="drop-icon">📄</div>
-    <div>把文件拖到这里</div>
-    <div class="small">支持 .md / .txt / .docx，单个文件建议 &lt; 2 MB</div>
-    <input type="file" id="fileInput" multiple accept=".md,.txt,.docx,.markdown" hidden />
-    <button class="pill-btn" id="pickFileBtn" style="margin-top:10px">选择文件</button>
-  </div>
-  <div class="drawer-actions">
-    <button class="pill-btn" id="reindexBtn">重建索引</button>
-    <button class="pill-btn" id="testSearchBtn">检索测试</button>
-  </div>
-  <div class="search-test" id="searchTest" hidden>
-    <input id="searchInput" placeholder="输入问题，看会命中哪些片段…" />
-    <div id="searchResults" class="search-results"></div>
-  </div>
-  <h4>已收录文档 <span id="kbDocCount" class="muted"></span></h4>
+  <h4>已收录 <span id="kbDocCount" class="muted"></span></h4>
   <div id="kbDocList" class="kb-doc-list"></div>
+  <p class="drawer-desc" style="margin-top:14px">
+    需要核对原文时，请按上面的“名称 / 机构 / 年份”检索官方发布版本。
+  </p>
 </div>
 
 <!-- ============ 数据来源台账 ============ -->

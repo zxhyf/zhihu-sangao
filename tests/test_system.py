@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import unittest
 from datetime import datetime, timedelta
 
@@ -504,6 +505,78 @@ class TestMedPlanChange(unittest.TestCase):
         meds = {m["name"]: m for m in medications.list_meds(TEST_USER)}
         self.assertEqual(meds["保剂量药"]["dose"], "10 mg")
         self.assertEqual(meds["保剂量药"]["times"], ["08:00", "19:00"])
+
+
+class TestJudgeMode(unittest.TestCase):
+    """评委体验模式：会话隔离、管理接口冻结、过期清理。"""
+
+    def test_demo_user_id_is_unique(self):
+        from agent import auth
+        ids = {auth.new_demo_user() for _ in range(20)}
+        self.assertEqual(len(ids), 20)
+        for uid in ids:
+            self.assertTrue(uid.startswith("u_demo_"))
+
+    def test_judge_mode_forces_admin_off(self):
+        import subprocess
+        import os as _os
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        env = dict(_os.environ, JUDGE_MODE="1")
+        env.pop("ENABLE_ADMIN_API", None)
+        env.pop("PREFER_LOCAL", None)
+        code = ("import json,config;print(json.dumps({"
+                "'admin':config.ENABLE_ADMIN_API,'local':config.PREFER_LOCAL,"
+                "'timeout':config.LLM_TIMEOUT,'ttl':config.SESSION_TTL_HOURS}))")
+        out = subprocess.check_output([sys.executable, "-c", code], cwd=root, env=env, timeout=60)
+        cfg = json.loads(out.decode().strip().splitlines()[-1])
+        self.assertFalse(cfg["admin"], "评委模式下管理接口必须强制关闭")
+        self.assertTrue(cfg["local"], "评委模式默认走本地规则引擎")
+        self.assertEqual(cfg["timeout"], 12.0, "评委模式大模型超时应缩短")
+
+    def test_rate_limit(self):
+        from agent import auth
+        key = "test_rate_key"
+        auth._MSG_HITS.pop(key, None)
+        self.assertTrue(auth.rate_ok(key, 2))
+        self.assertTrue(auth.rate_ok(key, 2))
+        self.assertFalse(auth.rate_ok(key, 2))
+        auth._MSG_HITS.pop(key, None)
+
+    def test_demo_users_are_isolated(self):
+        u1, u2 = "u_demo_test1", "u_demo_test2"
+        db.reset_user_data(u1)
+        db.reset_user_data(u2)
+        profile_tool.ensure_profile(u1)
+        profile_tool.ensure_profile(u2)
+        measurements.seed_demo(u1)
+        measurements.seed_demo(u2)
+        n1 = measurements.count(u1)
+        measurements.record(u1, "bp", None, 160, 100)
+        self.assertEqual(measurements.count(u1), n1 + 1)
+        self.assertEqual(measurements.count(u2), n1, "另一份演示数据不应被影响")
+        db.reset_user_data(u1)
+        db.reset_user_data(u2)
+
+    def test_stale_demo_users_are_purged(self):
+        uid = "u_demo_stale"
+        db.reset_user_data(uid)
+        profile_tool.ensure_profile(uid)
+        measurements.record(uid, "bp", None, 150, 95)
+        # 把创建时间改成很早，模拟“多天没人用”
+        db.execute("UPDATE measurements SET created_at='2020-01-01 08:00:00' WHERE user_id=?", (uid,))
+        removed = db.purge_inactive_demo_users(hours=48)
+        self.assertGreaterEqual(removed, 1)
+        self.assertEqual(measurements.count(uid), 0)
+        db.reset_user_data(uid)
+
+    def test_active_demo_user_is_kept(self):
+        uid = "u_demo_active"
+        db.reset_user_data(uid)
+        profile_tool.ensure_profile(uid)
+        measurements.record(uid, "bp", None, 148, 92)
+        db.purge_inactive_demo_users(hours=48)
+        self.assertGreaterEqual(measurements.count(uid), 1, "刚用过的演示用户不应被清理")
+        db.reset_user_data(uid)
 
 
 class TestToolWhitelist(unittest.TestCase):

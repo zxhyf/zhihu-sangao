@@ -286,20 +286,22 @@ function renderTasks(d) {
 
 function renderKb(d) {
   const kb = d.kb || {};
-  $('#kbCount').textContent = (kb.doc_count || 0) + ' 篇文档';
-  $('#kbChunk').textContent = (kb.chunk_count || 0) + ' 个片段';
-  $('#kbDir').textContent = kb.dir || 'knowledge/docs';
+  const cnt = $('#kbCount');
+  if (cnt) cnt.textContent = (kb.doc_count || 0) + ' 篇指南';
   const ds = d.drug_stats || {};
-  $('#drugStat').textContent = `${ds.drug_count || 0} 种常用药 · ${ds.rule_count || 0} 条联动规则`;
+  const stat = $('#drugStat');
+  if (stat) stat.textContent = `${ds.drug_count || 0} 种常用药 · ${ds.rule_count || 0} 条联动规则`;
   const list = $('#kbDocList');
+  if (!list) return;
   list.innerHTML = '';
-  $('#kbDocCount').textContent = `${kb.doc_count || 0} 篇 / ${kb.chunk_count || 0} 个片段`;
+  const docCount = $('#kbDocCount');
+  if (docCount) docCount.textContent = `${kb.doc_count || 0} 篇`;
   (kb.docs || []).forEach(doc => {
     const el = document.createElement('div');
     el.className = 'kb-doc';
     el.innerHTML = `<div class="kb-doc-top">
         <div><b>${esc(doc.title)}</b>
-          <div class="src-meta">${esc(doc.source || '')} · ${esc(doc.org || '')} · ${esc(doc.year || '')} · ${doc.chunks} 个片段</div>
+          <div class="src-meta">${esc(doc.source || '')} · ${esc(doc.org || '')} · ${esc(doc.year || '')}</div>
         </div>
         <span class="badge-lv">${esc(doc.level || 'B')}级</span>
       </div>`;
@@ -308,23 +310,17 @@ function renderKb(d) {
 }
 
 function renderMode(d) {
-  const m = d.mode || {};
+  const j = d.judge || {};
   const badge = $('#modeBadge');
-  badge.innerHTML = `<i></i><span>${m.llm ? 'DeepSeek 在线' : '本地规则引擎'} · ${m.model || ''}</span>`;
-  badge.classList.toggle('local', !m.llm);
+  if (!badge) return;
+  const local = j.engine !== 'llm';
+  badge.innerHTML = `<i></i><span>${esc(j.engine_label || (local ? '本地规则引擎' : '在线大模型'))}</span>`;
+  badge.classList.toggle('local', local);
 }
 
 function renderTools(d) {
-  const list = $('#toolList');
-  list.innerHTML = '';
-  (d.tools || []).forEach(t => {
-    const el = document.createElement('div');
-    el.className = 'tool-item';
-    el.innerHTML = `<code>${esc(t.name)}</code><div class="tool-desc">${esc(t.description)}</div>`;
-    list.appendChild(el);
-  });
-  const f = $('#forbidList');
-  f.innerHTML = (d.forbidden || []).map(x => `<li>${esc(x)}</li>`).join('');
+  // 面向用户后不再展示工具白名单；「安全说明」页为静态内容，这里不做渲染
+  return;
 }
 
 function renderSources(d) {
@@ -354,24 +350,36 @@ function renderWelcome() {
   const wrap = document.createElement('div');
   wrap.className = 'welcome';
   const p = (state.boot && state.boot.profile) || {};
+  const j = (state.boot && state.boot.judge) || {};
+  const kbCount = (state.boot && state.boot.kb && state.boot.kb.doc_count) || 0;
+
+  const steps = (j.steps || []).map(s => `
+    <div class="step">
+      <b>${esc(s.t)}</b>
+      <div><div class="step-t">${esc(s.title)}</div><div class="step-d">${esc(s.desc)}</div></div>
+    </div>`).join('');
+
+  const questions = (j.questions || []).map(q => `
+    <button class="q-chip" data-q="${esc(q.q)}">
+      <span class="q-label">${esc(q.label)}</span>
+      <span class="q-text">${esc(q.q)}</span>
+    </button>`).join('');
+
   wrap.innerHTML = `
-    <div class="welcome-card">
-      <h2>${esc(p.name || '你好')}，今天想先看哪一块？</h2>
-      <p>我是智护三高。你把零散的数字说出来，我负责记下来、看懂它、再帮你安排明天具体做什么。</p>
-      <div class="welcome-grid">
-        <button class="welcome-tile" data-q="今天血压 150/95">
-          <b>记录一次血压</b><span>说数值就行，自动校验、入库、分级</span></button>
-        <button class="welcome-tile" data-q="我最近血压怎么样">
-          <b>看看趋势</b><span>近 30 天均值、波动、变化方向</span></button>
-        <button class="welcome-tile" data-q="给我一份 7 天方案">
-          <b>7 天可执行方案</b><span>几点吃什么、做多少运动，具体到克</span></button>
-        <button class="welcome-tile" data-q="他汀和贝特能一起吃吗">
-          <b>用药联动检查</b><span>三高共病的药物—代谢交叉影响</span></button>
+    <div class="welcome-card judge">
+      <div class="w-kicker">开始体验 · 约 3 分钟</div>
+      <h2>${esc(p.name || '你好')}，先看三件事</h2>
+      <div class="steps">${steps}</div>
+      <div class="w-sub">也可以直接点一个问题试试</div>
+      <div class="q-grid">${questions}</div>
+      <div class="w-foot">
+        <span class="w-tag">${esc(j.engine_label || '本地规则引擎')}</span>
+        <span class="w-note">${esc(j.notice || '演示数据为合成的模拟数据，不是真实病历')}</span>
       </div>
-      <div class="welcome-note">知识库已收录 ${(state.boot && state.boot.kb && state.boot.kb.doc_count) || 0} 篇指南要点，回答会标注来源；所有建议不构成诊疗意见。</div>
+      <div class="w-note2">指南库已收录 ${kbCount} 篇权威要点，回答会标注出处；所有建议不构成诊疗意见，请遵医嘱。</div>
     </div>`;
   thread.appendChild(wrap);
-  $$('.welcome-tile', wrap).forEach(b => {
+  $$('.q-chip', wrap).forEach(b => {
     b.onclick = () => sendMessage(b.dataset.q);
   });
 }
@@ -1207,20 +1215,6 @@ function fillProfileForm(p) {
   $('#f_taste').value = p.taste || 'normal';
 }
 
-/* ---------------------------------------------------------------- 知识库 */
-async function uploadFiles(files) {
-  for (const f of files) {
-    const name = encodeURIComponent(f.name);
-    const buf = await f.arrayBuffer();
-    const res = await api('/api/kb/upload?name=' + name, { method: 'POST', body: buf });
-    if (res.ok) toast(`已导入 ${res.saved}`);
-    else toast('导入失败：' + (res.error || ''));
-  }
-  const b = await api('/api/bootstrap');
-  state.boot = b;
-  renderKb(b); renderVitals(b);
-}
-
 /* ---------------------------------------------------------------- 事件绑定 */
 function bindUI() {
   // 发送
@@ -1344,41 +1338,18 @@ function bindUI() {
     toast(state.bigFont ? '已切换为大字模式' : '已恢复标准字号');
   };
 
-  // 演示数据 / 清空
-  $('#seedBtn').onclick = async () => {
-    const r = await api('/api/demo/seed', { method: 'POST' });
-    const b = await api('/api/bootstrap');
-    state.boot = b;
-    renderVitals(b); renderTasks(b); renderProfile(b);
-    toast(r.message || `已写入 ${r.inserted} 条演示记录`);
-  };
-  $('#clearBtn').onclick = async () => {
-    if (!confirm('确定清空本地的健康数据、用药记录和对话记录吗？此操作不可恢复。')) return;
-    await api('/api/demo/clear', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirm: 'CLEAR' }),
-    });
-    const b = await api('/api/bootstrap');
-    state.boot = b;
-    renderVitals(b); renderTasks(b); renderProfile(b); renderDemoStrip(b);
-    $('#messages').innerHTML = '';
-    renderWelcome();
-    toast('本地数据已清空');
-  };
-
-  // 演示数据提示条上的清除按钮：只清演示数据
-  const demoClear = $('#demoClearBtn');
-  if (demoClear) {
-    demoClear.onclick = async () => {
-      if (!confirm('清除演示数据？你之后自己录入的数据不会被删除。')) return;
-      await api('/api/demo/clear', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: 'CLEAR', scope: 'demo' }),
-      });
+  // 演示数据提示条：恢复我这边的演示数据（普通用户唯一可用的数据操作）
+  const demoReset = $('#demoResetBtn');
+  if (demoReset) {
+    demoReset.onclick = async () => {
+      if (!confirm('恢复演示数据？会重置你这边的指标、用药和对话记录（不影响其他访客）。')) return;
+      const r = await api('/api/demo/reset', { method: 'POST' });
       const b = await api('/api/bootstrap');
       state.boot = b;
-      renderVitals(b); renderTasks(b); renderProfile(b); renderDemoStrip(b);
-      toast('演示数据已清除，可以开始录入自己的数据');
+      renderProfile(b); renderVitals(b); renderTasks(b); renderDemoStrip(b);
+      $('#messages').innerHTML = '';
+      renderWelcome();
+      toast(r.message || '已恢复演示数据');
     };
   }
 
@@ -1416,44 +1387,12 @@ function bindUI() {
     toast('档案已保存，方案会按新条件重新生成');
   };
 
-  // 知识库抽屉
+  // 指南库抽屉（只读）
   const openKb = () => { $('#kbDrawer').classList.add('show'); $('#kbMask').classList.add('show'); };
   const closeKb = () => { $('#kbDrawer').classList.remove('show'); $('#kbMask').classList.remove('show'); };
   $('#openKbBtn').onclick = openKb;
   $('#closeKbBtn').onclick = closeKb;
   $('#kbMask').onclick = closeKb;
-  $('#pickFileBtn').onclick = () => $('#fileInput').click();
-  $('#fileInput').onchange = (e) => uploadFiles(Array.from(e.target.files || []));
-  const dz = $('#dropZone');
-  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('hot'); }));
-  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('hot'); }));
-  dz.addEventListener('drop', (e) => uploadFiles(Array.from(e.dataTransfer.files || [])));
-  $('#reindexBtn').onclick = async () => {
-    const r = await api('/api/kb/reindex', { method: 'POST' });
-    const b = await api('/api/bootstrap');
-    state.boot = b; renderKb(b);
-    toast(`索引已重建：${r.kb.doc_count} 篇 / ${r.kb.chunk_count} 个片段`);
-  };
-  $('#testSearchBtn').onclick = () => {
-    const box = $('#searchTest');
-    box.hidden = !box.hidden;
-    if (!box.hidden) $('#searchInput').focus();
-  };
-  $('#searchInput').addEventListener('keydown', async (e) => {
-    if (e.key !== 'Enter') return;
-    const q = e.target.value.trim();
-    if (!q) return;
-    const r = await api('/api/kb/search', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q }),
-    });
-    $('#searchResults').innerHTML = (r.results || []).map((x, i) => `
-      <div class="kb-doc" style="margin-top:8px">
-        <div class="kb-doc-top"><b>${i + 1}. ${esc(x.title)}</b><span class="badge-lv">${esc(x.score)}</span></div>
-        <div class="src-meta">${esc(x.heading)} · ${esc(x.source)}</div>
-        <div class="src-snippet">${esc((x.text || '').slice(0, 180))}…</div>
-      </div>`).join('') || '<div class="vital-empty" style="margin-top:8px">没有命中片段</div>';
-  });
 
   // 数据来源
   $('#openSourcesBtn').onclick = () => $('#sourcesMask').classList.add('show');

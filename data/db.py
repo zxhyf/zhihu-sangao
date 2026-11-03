@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -183,6 +183,33 @@ def reset_user_data(user_id: str) -> None:
     with _LOCK:
         for table in ("measurements", "medications", "med_logs", "tasks", "chat_messages", "risk_events"):
             execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+
+
+def purge_inactive_demo_users(hours: int = 48) -> int:
+    """清理超过 N 小时没有活动的演示用户，避免评委体验模式的数据库无限膨胀。"""
+    cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+    last: dict[str, str] = {}
+    for table, col in (("measurements", "created_at"), ("chat_messages", "created_at"),
+                       ("med_logs", "taken_at"), ("tasks", "created_at")):
+        try:
+            rows = query(
+                f"SELECT user_id, MAX(COALESCE({col}, '')) AS t FROM {table} "
+                "WHERE user_id LIKE 'u_demo_%' GROUP BY user_id")
+        except Exception:
+            continue
+        for r in rows:
+            last[r["user_id"]] = max(last.get(r["user_id"], ""), r["t"] or "")
+    stale = [uid for uid, t in last.items() if (t or "") < cutoff]
+    for uid in stale:
+        reset_user_data(uid)
+        execute("DELETE FROM profile WHERE user_id = ?", (uid,))
+    return len(stale)
+
+
+def demo_user_count() -> int:
+    row = query_one(
+        "SELECT COUNT(DISTINCT user_id) AS c FROM measurements WHERE user_id LIKE 'u_demo_%'")
+    return int(row["c"]) if row else 0
 
 
 def db_path() -> Path:

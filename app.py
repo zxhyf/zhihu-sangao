@@ -24,7 +24,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import (APP_NAME, APP_SUBTITLE, DEFAULT_USER, DISCLAIMER, HOST, LLM_MODEL,
                     PORT, REPORTS_DIR, SOURCES_FILE, UI_DIR, DOCS_DIR, SAFETY_LINE,
-                    APP_ENV, APP_PASSWORD, SEED_ON_FIRST_RUN, MAX_MESSAGE_LEN)
+                    APP_ENV, APP_PASSWORD, SEED_ON_FIRST_RUN, MAX_MESSAGE_LEN,
+                    JUDGE_MODE, ENABLE_ADMIN_API, PREFER_LOCAL, RATE_LIMIT_PER_HOUR,
+                    DEMO_USER_TTL_HOURS)
 from data import db
 from agent import auth, llm, orchestrator
 from agent.rag import get_kb
@@ -50,6 +52,24 @@ def json_bytes(obj) -> bytes:
 class Handler(BaseHTTPRequestHandler):
     server_version = "ZhiHuSanGao/1.0"
     _cookie: str | None = None
+
+    # 普通用户不可调用的管理接口（关闭时一律 403，不依赖前端隐藏）
+    ADMIN_PATHS = {
+        "/api/kb/upload", "/api/kb/delete", "/api/kb/reindex",
+        "/api/demo/seed", "/api/demo/clear",
+        "/api/tools", "/api/llm/check", "/api/report/save", "/api/drugs",
+    }
+
+    def _admin_blocked(self, path: str) -> bool:
+        if path in self.ADMIN_PATHS and not ENABLE_ADMIN_API:
+            auth.audit("admin_blocked", ip=self.client_address[0], path=path)
+            self._json({
+                "ok": False,
+                "error": "该接口在当前部署下已关闭（管理功能）",
+                "code": "admin_disabled",
+            }, 403)
+            return True
+        return False
 
     # ------------------------------------------------------------------ 基础
     def log_message(self, fmt, *args):  # 降噪
@@ -80,16 +100,31 @@ class Handler(BaseHTTPRequestHandler):
         cookies = auth.parse_cookie(self.headers.get("Cookie"))
         return auth.STORE.get(cookies.get(auth.COOKIE_NAME))
 
+    def _new_session_user(self) -> str:
+        """评委模式：每个浏览器会话一个独立演示用户，首次进入自动种一份演示数据。"""
+        if not JUDGE_MODE:
+            return DEFAULT_USER
+        uid = auth.new_demo_user()
+        profile_tool.ensure_profile(uid)
+        measurements.seed_demo(uid)
+        tasks.ensure_today(uid)
+        auth.audit("judge_session_new", user=uid)
+        return uid
+
+    def _issue_session(self, user_id: str) -> None:
+        token = auth.STORE.create(user_id)
+        self._cookie = auth.session_cookie(token)
+
     def _require_session(self) -> tuple[str | None, bool]:
         """返回 (user_id, 是否已拦截)。身份只来自服务端会话，不接受客户端传入。"""
         sess = self._current_session()
         if sess:
             return sess["user_id"], False
         if not auth.password_required():
-            # 本地单机模式：首次访问自动建会话（服务只监听 127.0.0.1）
-            token = auth.STORE.create(DEFAULT_USER)
-            self._cookie = auth.session_cookie(token)
-            return DEFAULT_USER, False
+            # 本地单机 / 评委模式：首次访问自动建会话
+            uid = self._new_session_user()
+            self._issue_session(uid)
+            return uid, False
         self._json({"ok": False, "error": "未登录或会话已过期", "need_login": True}, 401)
         return None, True
 
@@ -109,10 +144,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "authenticated": True, "user_id": sess["user_id"],
                                "needs_password": auth.password_required()})
         if not auth.password_required():
-            token = auth.STORE.create(DEFAULT_USER)
-            self._cookie = auth.session_cookie(token)
-            return self._json({"ok": True, "authenticated": True, "user_id": DEFAULT_USER,
-                               "needs_password": False, "mode": "local"})
+            uid = self._new_session_user()
+            self._issue_session(uid)
+            return self._json({"ok": True, "authenticated": True, "user_id": uid,
+                               "needs_password": False, "mode": "judge" if JUDGE_MODE else "local"})
         return self._json({"ok": True, "authenticated": False, "needs_password": True})
 
     def handle_login(self) -> None:
@@ -175,6 +210,9 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "app": APP_NAME,
                     "env": APP_ENV,
+                    "judge_mode": JUDGE_MODE,
+                    "admin_api": ENABLE_ADMIN_API,
+                    "engine": "local" if (PREFER_LOCAL or not llm.CLIENT.available) else "llm",
                     "auth": {"password_required": auth.password_required(),
                              "bind": HOST},
                     "llm": {"configured": llm.CLIENT.available, "model": LLM_MODEL,
@@ -187,6 +225,9 @@ class Handler(BaseHTTPRequestHandler):
 
             if not path.startswith("/api/"):
                 return self._json({"ok": False, "error": "not found"}, 404)
+
+            if self._admin_blocked(path):
+                return
 
             user_id, blocked = self._require_session()
             if blocked:
@@ -279,6 +320,9 @@ class Handler(BaseHTTPRequestHandler):
                 auth.audit("csrf_blocked", ip=self.client_address[0], path=path)
                 return self._json({"ok": False, "error": "请求来源校验失败"}, 403)
 
+            if self._admin_blocked(path):
+                return
+
             user_id, blocked = self._require_session()
             if blocked:
                 return
@@ -290,8 +334,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": "消息不能为空"}, 400)
                 if len(message) > MAX_MESSAGE_LEN:
                     return self._json({"ok": False, "error": f"消息过长（上限 {MAX_MESSAGE_LEN} 字）"}, 413)
-                result = orchestrator.handle(message, user_id=user_id,
-                                             use_llm=body.get("use_llm", True))
+                if not auth.rate_ok(user_id, RATE_LIMIT_PER_HOUR):
+                    return self._json({"ok": False,
+                                       "error": f"每小时最多 {RATE_LIMIT_PER_HOUR} 条，请稍后再试"}, 429)
+                use_llm = bool(body.get("use_llm", True)) and not PREFER_LOCAL
+                result = orchestrator.handle(message, user_id=user_id, use_llm=use_llm)
                 return self._json(result)
 
             if path == "/api/tasks/toggle":
@@ -429,6 +476,15 @@ class Handler(BaseHTTPRequestHandler):
                 q = (body.get("q") or "").strip()
                 return self._json({"ok": True, "results": get_kb().search(q, k=6)})
 
+            if path == "/api/demo/reset":
+                # 用户自助：只重置「自己这份」演示数据，不触碰别人
+                measurements.clear(user_id)
+                profile_tool.ensure_profile(user_id)
+                measurements.seed_demo(user_id)
+                tasks.ensure_today(user_id)
+                auth.audit("demo_reset", ip=self.client_address[0], user=user_id)
+                return self._json({"ok": True, "message": "已恢复你这边的演示数据"})
+
             if path == "/api/demo/seed":
                 n = measurements.seed_demo(user_id)
                 msg = f"已写入 {n} 条演示记录" if n else "演示数据已存在，未重复写入"
@@ -507,6 +563,31 @@ class Handler(BaseHTTPRequestHandler):
                        "measurements_7d": measurements.count(user_id, 7)},
             "demo": self.demo_info(user_id),
             "env": APP_ENV,
+            "judge": self.judge_info(),
+        }
+
+    def judge_info(self) -> dict:
+        engine = "local" if (PREFER_LOCAL or not llm.CLIENT.available) else "llm"
+        return {
+            "mode": JUDGE_MODE,
+            "admin_enabled": ENABLE_ADMIN_API,
+            "engine": engine,
+            "engine_label": "本地规则引擎" if engine == "local" else f"在线大模型（{LLM_MODEL}）",
+            "notice": "当前展示的是合成的演示数据，不是真实病历，也不会用于任何诊断。",
+            "questions": [
+                {"label": "记录一次血压", "q": "今天血压 150/95"},
+                {"label": "看趋势", "q": "我最近血压怎么样"},
+                {"label": "处方红线", "q": "我想把氨氯地平停掉"},
+                {"label": "急症拦截", "q": "我胸口疼，还喘不上气"},
+                {"label": "指南问答", "q": "三高人群每天能吃多少盐"},
+                {"label": "7 天方案", "q": "给我一份 7 天方案"},
+                {"label": "改用药计划", "q": "我每天早上8点吃一片氨氯地平"},
+            ],
+            "steps": [
+                {"t": "1", "title": "说一句话记录", "desc": "输入「今天血压 150/95」，看它校验、分级、画 30 天趋势"},
+                {"t": "2", "title": "看用药打卡", "desc": "顶部「用药打卡」逐时段打卡；同一时段重复点不会重复计数"},
+                {"t": "3", "title": "试一次安全拦截", "desc": "输入「我胸口疼，还喘不上气」，看它跳过生成、直接给 120 指引"},
+            ],
         }
 
     def demo_info(self, user_id: str) -> dict:
@@ -536,8 +617,11 @@ def banner(url: str, port: int, seeded: bool, host: str) -> None:
     print(f"\n  {APP_NAME} · {APP_SUBTITLE}")
     print(f"  {line}")
     print(f"  ▸ 访问地址   {url}")
-    print(f"  ▸ 运行模式   {'共享演示（需登录密码）' if auth.password_required() else '本地单机（仅本机可访问）'}"
-          f"　环境：{APP_ENV}")
+    mode_label = ("评委体验（每会话独立演示数据）" if JUDGE_MODE else
+                  "共享演示（需登录密码）" if auth.password_required() else "本地单机（仅本机可访问）")
+    print(f"  ▸ 运行模式   {mode_label}　环境：{APP_ENV}")
+    print(f"  ▸ 管理接口   {'开启' if ENABLE_ADMIN_API else '关闭（普通用户不能改知识库/清空数据）'}")
+    print(f"  ▸ 生成引擎   {'本地规则优先（不依赖网络）' if PREFER_LOCAL else '优先大模型，失败自动降级'}")
     print(f"  ▸ 监听地址   {host}" + ("" if auth.password_required() or host in ("127.0.0.1", "localhost")
                                   else "　⚠️ 未设密码却对外监听，已强制回收为本机"))
     print(f"  ▸ 大模型     {'已连接 DeepSeek（' + LLM_MODEL + '）' if llm.CLIENT.available else '未配置，使用本地规则引擎'}")
@@ -573,6 +657,11 @@ def main() -> None:
     db.init_db()
     profile_tool.ensure_profile(DEFAULT_USER)
     get_kb().build()
+
+    if JUDGE_MODE:
+        purged = db.purge_inactive_demo_users(DEMO_USER_TTL_HOURS)
+        if purged:
+            print(f"  ▸ 已清理 {purged} 个过期的演示用户（{DEMO_USER_TTL_HOURS} 小时无活动）")
 
     seeded = False
     if not args.no_seed and SEED_ON_FIRST_RUN and measurements.count(DEFAULT_USER) == 0:

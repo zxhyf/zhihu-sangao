@@ -25,10 +25,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import APP_PASSWORD, DATA_DIR, DEFAULT_USER
+from config import APP_PASSWORD, DATA_DIR, DEFAULT_USER, SESSION_TTL_HOURS
 
 COOKIE_NAME = "zhsg_session"
-SESSION_TTL = 12 * 3600          # 12 小时
+SESSION_TTL = SESSION_TTL_HOURS * 3600   # 默认 48 小时（评委模式）/ 12 小时
 MAX_LOGIN_FAILS = 5
 LOGIN_WINDOW = 300               # 5 分钟
 AUDIT_FILE = DATA_DIR / "audit.log"
@@ -119,6 +119,31 @@ def session_cookie(token: str, max_age: int = SESSION_TTL) -> str:
 
 def clear_cookie() -> str:
     return f"{COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+
+
+# ---------------------------------------------------------------- 评委模式辅助
+def new_demo_user() -> str:
+    """每个浏览器会话一个独立演示用户，互不污染。"""
+    return "u_demo_" + secrets.token_hex(4)
+
+
+_MSG_HITS: dict[str, list[float]] = {}
+_MSG_LOCK = threading.Lock()
+
+
+def rate_ok(key: str, limit: int) -> bool:
+    """简单限流：同一会话每小时最多 N 条消息（limit<=0 表示不限）。"""
+    if limit <= 0:
+        return True
+    now = time.time()
+    with _MSG_LOCK:
+        hits = [t for t in _MSG_HITS.get(key, []) if now - t < 3600]
+        if len(hits) >= limit:
+            _MSG_HITS[key] = hits
+            return False
+        hits.append(now)
+        _MSG_HITS[key] = hits
+    return True
 
 
 def audit(event: str, **fields) -> None:

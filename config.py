@@ -46,11 +46,29 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
+# ---------------- 评委体验模式（必须在大模型配置之前读取） ----------------
+# JUDGE_MODE=1：每个浏览器会话独立演示数据、隐藏管理入口、默认本地规则引擎
+JUDGE_MODE = os.environ.get("JUDGE_MODE", "0").strip() == "1"
+# 管理接口总开关：JUDGE_MODE 下强制关闭，避免评委误清库
+ENABLE_ADMIN_API = os.environ.get("ENABLE_ADMIN_API", "1").strip() == "1"
+if JUDGE_MODE:
+    ENABLE_ADMIN_API = False
+# 演示用户 N 小时无活动自动清理
+DEMO_USER_TTL_HOURS = int(os.environ.get("DEMO_USER_TTL_HOURS", "48"))
+# 会话有效期（小时）
+SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "48" if JUDGE_MODE else "12"))
+# 评委模式默认不调大模型：不烧钱、不怕断网；要录演示可设 PREFER_LOCAL=0
+PREFER_LOCAL = os.environ.get("PREFER_LOCAL", "1" if JUDGE_MODE else "0").strip() == "1"
+# 每个会话每小时最多发多少条消息（防止公网被刷；0 表示不限）
+RATE_LIMIT_PER_HOUR = int(os.environ.get("RATE_LIMIT_PER_HOUR", "120" if JUDGE_MODE else "0"))
+# 评委模式下大模型超时更短，避免卡住演示
+_LLM_TIMEOUT_DEFAULT = "12" if JUDGE_MODE else "45"
+
 # ---------------- 大模型配置 ----------------
 LLM_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 LLM_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 LLM_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "45"))
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", _LLM_TIMEOUT_DEFAULT))
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1000"))
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.35"))
 
