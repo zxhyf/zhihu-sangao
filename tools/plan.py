@@ -244,29 +244,32 @@ def generate(user_id: str = DEFAULT_USER, days: int = 7) -> dict:
         snack = _pick(SNACKS, i)
         ex = _pick(EXERCISE, i)
 
-        items.append({"time": t_wake, "category": "measure", "title": "起床后先测量",
-                      "content": "排尿后、服药前、早餐前测血压（坐位静息 5 分钟，测 2 遍取平均）"})
+        items.append({"time": t_wake, "category": "measure", "title": "量血压",
+                      "content": "起床后、吃药前、早饭前量。坐着歇 5 分钟，量两次取平均",
+                      "note": "先排尿再量，量之前不要走动"})
         items.append({"time": t_breakfast, "category": "meal", "title": "早餐",
                       "content": breakfast_text, "note": b["note"]})
-        items.append({"time": t_med_am, "category": "med", "title": "早间服药",
-                      "content": "按医嘱服药，服完在“用药打卡”里点一下"})
-        items.append({"time": t_snack1, "category": "meal", "title": "上午加餐",
+        items.append({"time": t_med_am, "category": "med", "title": "吃早上的药",
+                      "content": "按医生说的吃。吃完在「用药打卡」点一下"})
+        items.append({"time": t_snack1, "category": "meal", "title": "上午加一点",
                       "content": snack[0], "note": snack[1]})
         items.append({"time": t_lunch, "category": "meal", "title": "午餐",
                       "content": lunch_text, "note": lu["note"]})
         if has_dm:
-            items.append({"time": hhmm(t_lunch, 120), "category": "measure", "title": "餐后 2 小时血糖",
-                          "content": "从吃第一口饭开始计时，满 2 小时测血糖"})
-        items.append({"time": t_snack2, "category": "meal", "title": "下午加餐",
-                      "content": _pick(SNACKS, i + 2)[0], "note": "加餐是为了避免晚餐前过饿而吃多"})
+            items.append({"time": hhmm(t_lunch, 120), "category": "measure", "title": "饭后两小时测血糖",
+                          "content": "从吃第一口饭开始算，满两小时测一次"})
+        items.append({"time": t_snack2, "category": "meal", "title": "下午加一点",
+                      "content": _pick(SNACKS, i + 2)[0], "note": "少吃一点，晚饭才不会吃多"})
         items.append({"time": t_dinner, "category": "meal", "title": "晚餐",
                       "content": dinner_text, "note": di["note"]})
-        items.append({"time": t_walk, "category": "exercise", "title": "运动",
+        items.append({"time": t_walk, "category": "exercise", "title": "活动一下",
                       "content": ex[0], "note": ex[1]})
-        items.append({"time": hhmm(t_dinner, 180), "category": "measure", "title": "睡前血压",
-                      "content": "睡前测一次血压并记录；如果今天头晕、心慌，把感受也写下来"})
+        items.append({"time": hhmm(t_dinner, 180), "category": "measure", "title": "睡前量血压",
+                      "content": "睡前量一次记下来。今天要是头晕、心慌，也写一句",
+                      "note": "感觉不舒服就先别量，坐下歇一会儿"})
         items.append({"time": t_sleep, "category": "sleep", "title": "准备睡觉",
-                      "content": "睡前 1 小时不看手机，保证 7 小时睡眠（睡眠不足会升高血压）"})
+                      "content": "睡前一小时放下手机，尽量睡够 7 小时",
+                      "note": "睡不好，第二天血压容易高"})
 
         items.sort(key=lambda x: x["time"])
         day_plans.append({

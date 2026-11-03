@@ -232,20 +232,20 @@ def local_reply(intent: str, facts: dict, user_text: str = "") -> str:
         if not rec:
             return "这次没能识别出具体数值。可以这样说：“今天血压 150/95”“空腹血糖 7.2”“体重 70 公斤”。"
         risk = rec.get("risk") or {}
-        lines = [f"已记录：{rec.get('measured_at', '')[:16]} {rec.get('label')} **{rec.get('value_text')}**，"
-                 f"风险分级为「{risk.get('label')}」。", risk.get("detail", "")]
+        lines = [f"记下了：{rec.get('measured_at', '')[:16]}，{rec.get('label')} **{rec.get('value_text')}**。",
+                 f"这个数值属于「{risk.get('label')}」。{risk.get('detail', '')}"]
         trend = facts.get("trend")
         if trend and trend.get("ok"):
             st = trend.get("stats", {})
-            lines.append(f"近 {st.get('days')} 天平均 {st.get('mean_text')}，{st.get('direction')}，"
-                         f"共 {trend.get('abnormal')} 条超出指南参考范围。")
+            lines.append(f"最近 {st.get('days')} 天平均 {st.get('mean_text')}，整体{st.get('direction')}。"
+                         f"有 {trend.get('abnormal')} 次超出了指南给的范围。")
         else:
-            lines.append("目前这个指标的记录还不多，连续记录 3 天以上就能看出趋势。")
+            lines.append("这个指标记录还少。连续记 3 天以上，才能看出变化。")
         if risk.get("level") in ("danger", "emergency"):
-            lines.append("- 这个数值已超出安全区间，先把测量结果和当时的感受记下来，尽快联系医生。")
+            lines.append("这次数值偏高得明显，请把结果和当时的感受记下来，尽快联系医生。")
         else:
-            lines.append("- 明天同一时间（起床后、服药前、早餐前）再测一次，对比才有意义。")
-        lines.append(f"- 记录依据：{risk.get('ref', '')}（来源：《中国高血压/糖尿病/血脂管理指南》）")
+            lines.append("明天同一时间再测一次（起床后、吃药前、早饭前），两次对比才有意义。")
+        lines.append(f"判断依据：{risk.get('ref', '')}。")
         return "\n".join(x for x in lines if x)
 
     if intent in ("query_trend", "query_latest"):
@@ -255,18 +255,18 @@ def local_reply(intent: str, facts: dict, user_text: str = "") -> str:
             return msg + "\n- 建议每天固定时间测一次，连续 3 天以上系统就能画出趋势图。"
         st = trend.get("stats", {})
         lines = [
-            f"{trend.get('label')}：近 {st.get('days')} 天共 {st.get('count')} 条记录，平均 **{st.get('mean_text')}**，"
-            f"区间 {st.get('min'):g}–{st.get('max'):g} {trend.get('unit')}，{st.get('direction')}。",
-            f"其中 {trend.get('abnormal')} 条超出指南参考范围（警戒 {trend['counts']['watch']} 条、"
-            f"危险 {trend['counts']['danger']} 条、急症 {trend['counts']['emergency']} 条）。",
+            f"{trend.get('label')}，最近 {st.get('days')} 天记了 {st.get('count')} 次。",
+            f"平均是 **{st.get('mean_text')}**，最低 {st.get('min'):g}，最高 {st.get('max'):g} {trend.get('unit')}。整体{st.get('direction')}。",
+            f"有 {trend.get('abnormal')} 次超出指南范围（需要留意 {trend['counts']['watch']} 次、"
+            f"偏高明显 {trend['counts']['danger']} 次、很危险 {trend['counts']['emergency']} 次）。",
         ]
         if "上升" in st.get("direction", ""):
-            lines.append("- 上升趋势先排查三件事：有没有漏服药、口味是不是变咸了、最近睡眠够不够。")
+            lines.append("数值往上走了，先查三件事：有没有漏吃药、菜是不是变咸了、最近睡够没有。")
         elif "下降" in st.get("direction", ""):
-            lines.append("- 下降趋势说明当前管理方式在起作用，继续保持定时测量和记录。")
+            lines.append("数值在往下走，说明现在的做法有效，接着保持。")
         else:
-            lines.append("- 整体平稳，重点是保持每天同一时间测量，异常单次值要复测确认。")
-        lines.append("- 复诊时把这张趋势图给医生看，比只说“最近还行”有用得多。")
+            lines.append("整体比较平稳。每天固定时间量一次就行，哪次特别高，歇一会儿再量一遍确认。")
+        lines.append("下次去医院，把这张图给医生看，比说“最近还行”有用。")
         return "\n".join(lines)
 
     if intent == "interaction":

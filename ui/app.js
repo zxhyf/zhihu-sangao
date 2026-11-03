@@ -566,7 +566,7 @@ function chartCard(b) {
     <div class="chart-host"></div>
     <div class="chart-stats">
       <span>均值 <b>${esc(b.stats.mean_text || '')}</b></span>
-      <span>区间 <b>${esc(String(b.stats.min))}–${esc(String(b.stats.max))}</b> ${esc(b.unit || '')}</span>
+      <span>最低到最高 <b>${esc(String(b.stats.min))}–${esc(String(b.stats.max))}</b> ${esc(b.unit || '')}</span>
       <span>方向 <b>${esc(b.stats.direction || '')}</b></span>
       <span>超参考 <b style="color:${b.counts.danger || b.counts.emergency ? '#c62828' : '#c2760a'}">${esc(String(b.stats.count != null ? (b.counts.watch + b.counts.danger + b.counts.emergency) : 0))}</b> / ${esc(String(b.stats.count))} 条</span>
     </div>`;
@@ -1050,7 +1050,7 @@ async function renderMeds() {
   const doneN = schedule.filter(s => s.done).length;
   $('#medsKpi').innerHTML = `
     <div class="kpi"><b>${doneN}/${schedule.length}</b><span>今日已服</span></div>
-    <div class="kpi"><b>${adh.rate || 0}%</b><span>7 天依从率</span></div>
+    <div class="kpi"><b>${adh.rate || 0}%</b><span>按时吃药（近 7 天）</span></div>
     <div class="kpi"><b>${meds.length}</b><span>在服药物</span></div>`;
   $('#medsTodayHint').textContent = schedule.length
     ? `${doneN}/${schedule.length} 已完成 · 共 ${schedule.length} 个时段 / ${meds.length} 种药`
@@ -1165,7 +1165,7 @@ async function renderMeds() {
   const byMed = adh.by_med || {};
   const names = Object.keys(byMed);
   if (!names.length) {
-    adhBox.innerHTML = '<div class="vital-empty">还没有用药计划，无法统计依从率。</div>';
+    adhBox.innerHTML = '<div class="vital-empty">还没有登记用药计划，暂时算不了这个比例。</div>';
   }
   names.forEach(name => {
     const v = byMed[name];
@@ -1201,7 +1201,7 @@ async function renderDash(days) {
         <div class="chart-host"></div>
         <div class="chart-stats">
           <span>均值 <b>${esc(t.stats.mean_text)}</b></span>
-          <span>区间 <b>${t.stats.min}–${t.stats.max}</b> ${esc(t.unit)}</span>
+          <span>最低到最高 <b>${t.stats.min}–${t.stats.max}</b> ${esc(t.unit)}</span>
           <span>超参考 <b>${t.abnormal}</b> 条</span>
         </div>`;
       card.querySelector('.chart-host').innerHTML = lineChart(t.series, { kind: t.kind, sub: t.sub, unit: t.unit });
