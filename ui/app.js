@@ -1,4 +1,4 @@
-/* =========================================================
+﻿/* =========================================================
    智护三高 · 前端逻辑（原生 JS，无任何第三方依赖）
    ========================================================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -381,15 +381,15 @@ function renderWelcome() {
   wrap.innerHTML = `
     <div class="welcome-card judge">
       <div class="w-kicker">开始体验 · 约 3 分钟</div>
-      <h2>${esc(p.name || '你好')}，先看三件事</h2>
+      <h2>先看三件事</h2>
       <div class="steps">${steps}</div>
       <div class="w-sub">也可以直接点一个问题试试</div>
       <div class="q-grid">${questions}</div>
       <div class="w-foot">
         <span class="w-tag">${esc(j.engine_label || '本地规则引擎')}</span>
-        <span class="w-note">${esc(j.notice || '演示数据为合成的模拟数据，不是真实病历')}</span>
+        <span class="w-note">${esc(j.notice || '页面里的数字是系统生成的示例数据，不是你的真实病历。')}</span>
       </div>
-      <div class="w-note2">指南库已收录 ${kbCount} 篇权威要点，回答会标注出处；所有建议不构成诊疗意见，请遵医嘱。</div>
+      <div class="w-note2">已经整理了 ${kbCount} 篇权威指南的要点，回答会注明出处。所有建议仅供参考，具体请遵医嘱。</div>
     </div>`;
   thread.appendChild(wrap);
   $$('.q-chip', wrap).forEach(b => {
@@ -1378,7 +1378,7 @@ function bindUI() {
   $('#profileMask').onclick = (e) => { if (e.target.id === 'profileMask') e.target.classList.remove('show'); };
   $('#saveProfileBtn').onclick = async () => {
     const body = {
-      name: $('#f_name').value.trim() || '演示用户',
+      name: $('#f_name').value.trim() || '体验用户',
       birth_year: Number($('#f_birth').value) || null,
       sex: $('#f_sex').value,
       height_cm: Number($('#f_height').value) || null,

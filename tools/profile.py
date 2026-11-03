@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """健康档案工具。"""
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from config import DEFAULT_USER
 from data import db
 
 DEFAULT_PROFILE = {
-    "name": "演示用户",
+    "name": "体验用户",
     "birth_year": 1962,
     "sex": "男",
     "height_cm": 170.0,
