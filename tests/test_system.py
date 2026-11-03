@@ -542,6 +542,20 @@ class TestJudgeMode(unittest.TestCase):
         self.assertFalse(auth.rate_ok(key, 2))
         auth._MSG_HITS.pop(key, None)
 
+    def test_cli_password_takes_effect(self):
+        """--password 必须真正启用鉴权，而不只是允许对外监听。"""
+        from agent import auth
+        original = auth.password_required()
+        try:
+            auth.set_password("judge2026")
+            self.assertTrue(auth.password_required())
+            self.assertTrue(auth.check_password("judge2026"))
+            self.assertFalse(auth.check_password("wrong"))
+            self.assertFalse(auth.check_password(""))
+        finally:
+            auth.set_password("" if not original else "restore")
+            auth.set_password("")
+
     def test_demo_users_are_isolated(self):
         u1, u2 = "u_demo_test1", "u_demo_test2"
         db.reset_user_data(u1)

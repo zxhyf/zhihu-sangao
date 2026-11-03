@@ -94,14 +94,23 @@ def record_login_fail(ip: str) -> None:
         _FAILS.setdefault(ip, []).append(time.time())
 
 
+_PASSWORD = APP_PASSWORD
+
+
+def set_password(password: str) -> None:
+    """命令行 --password 覆盖 .env 里的 APP_PASSWORD。"""
+    global _PASSWORD
+    _PASSWORD = (password or "").strip()
+
+
 def check_password(password: str) -> bool:
-    if not APP_PASSWORD:
+    if not _PASSWORD:
         return True
-    return hmac.compare_digest((password or "").encode("utf-8"), APP_PASSWORD.encode("utf-8"))
+    return hmac.compare_digest((password or "").encode("utf-8"), _PASSWORD.encode("utf-8"))
 
 
 def password_required() -> bool:
-    return bool(APP_PASSWORD)
+    return bool(_PASSWORD)
 
 
 def parse_cookie(header: str | None) -> dict:

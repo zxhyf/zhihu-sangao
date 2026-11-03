@@ -160,10 +160,12 @@ class Handler(BaseHTTPRequestHandler):
             auth.record_login_fail(ip)
             auth.audit("login_fail", ip=ip)
             return self._json({"ok": False, "error": "密码不正确"}, 401)
-        token = auth.STORE.create(DEFAULT_USER)
+        # 评委模式下每个登录者同样拿到独立演示数据，避免多人共用一份
+        uid = self._new_session_user()
+        token = auth.STORE.create(uid)
         self._cookie = auth.session_cookie(token)
-        auth.audit("login_ok", ip=ip)
-        return self._json({"ok": True, "authenticated": True})
+        auth.audit("login_ok", ip=ip, user=uid)
+        return self._json({"ok": True, "authenticated": True, "user_id": uid})
 
     def handle_logout(self) -> None:
         cookies = auth.parse_cookie(self.headers.get("Cookie"))
@@ -647,9 +649,13 @@ def main() -> None:
     except Exception:
         pass
 
+    # 命令行密码优先生效（--password），否则用 .env 里的 APP_PASSWORD
+    if args.password:
+        auth.set_password(args.password)
+
     # 没有密码就不允许对外监听：这是防止健康数据被局域网他人读取的最低保障
     host = args.host
-    if not (auth.password_required() or args.password):
+    if not auth.password_required():
         if host not in ("127.0.0.1", "localhost"):
             print(f"  ⚠️ 未设置访问密码，拒绝监听 {host}，已回退到 127.0.0.1")
             host = "127.0.0.1"

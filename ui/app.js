@@ -133,6 +133,19 @@ async function init() {
   }
   bindUI();
 
+  // 体验链接：/…?k=密码 自动登录，评委点链接即可进入（登录后从地址栏抹掉密码）
+  const key = new URLSearchParams(location.search).get('k');
+  if (key) {
+    const r = await api('/api/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: key }),
+    }).catch(() => null);
+    if (r && r.ok) {
+      const clean = location.pathname + location.hash;
+      history.replaceState(null, '', clean);
+    }
+  }
+
   const sess = await api('/api/session').catch(() => null);
   if (!sess || !sess.authenticated) {
     showLogin(sess && sess.needs_password ? '' : '无法建立会话');
