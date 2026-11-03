@@ -174,13 +174,20 @@ def check_prescription(text: str) -> dict:
 
 
 def evaluate(text: str) -> dict:
-    """完整安全评估入口。"""
-    em = check_text(text)
-    if em.get("level") == "emergency":
-        return em
-    rx = check_prescription(text)
-    if rx.get("level") == "prescription":
-        return rx
-    if em.get("level") == "urgent":
-        return em
+    """完整安全评估入口。
+
+    先做一次口语归一（“上不来气”→“呼吸困难”），避免老年人的说法漏检；
+    原始文本仍完整保留在对话记录里。
+    """
+    from agent import lexicon
+    norm = lexicon.normalize_symptoms(text or "")
+    for t in ([norm, text] if norm != text else [text]):
+        em = check_text(t)
+        if em.get("level") == "emergency":
+            return em
+        rx = check_prescription(t)
+        if rx.get("level") == "prescription":
+            return rx
+        if em.get("level") == "urgent":
+            return em
     return {"level": "none"}

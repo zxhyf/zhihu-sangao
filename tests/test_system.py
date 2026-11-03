@@ -593,6 +593,43 @@ class TestJudgeMode(unittest.TestCase):
         db.reset_user_data(uid)
 
 
+class TestLexiconAndKbExpansion(unittest.TestCase):
+    """口语词表与知识库扩充。"""
+
+    def test_colloquial_bp_words(self):
+        from agent import lexicon
+        n = lexicon.normalize_measure_text("高压150 低压95")
+        self.assertIn("收缩压", n)
+        self.assertIn("舒张压", n)
+        recs = intent.parse_measurements("上压 160，下压 100")
+        self.assertEqual(recs[0]["kind"], "bp")
+        self.assertEqual((recs[0]["val1"], recs[0]["val2"]), (160.0, 100.0))
+
+    def test_colloquial_symptoms_still_hit_safety(self):
+        from agent import safety
+        for text in ("我上不来气", "胸口疼得厉害", "嘴歪了说话不清"):
+            self.assertEqual(safety.evaluate(text).get("level"), "emergency", text)
+
+    def test_lexicon_intent_hints(self):
+        from agent import lexicon
+        self.assertIn("med_missed", lexicon.matched_intents("昨天漏吃了一次"))
+        self.assertIn("interaction", lexicon.matched_intents("这两样药能不能一起吃"))
+        self.assertTrue(lexicon.is_hba1c_mention("糖化是多少"))
+
+    def test_new_kb_docs_are_indexed(self):
+        kb = get_kb()
+        kb.build()
+        titles = " ".join(d.get("title", "") for d in (kb.status().get("docs") or []))
+        for kw in ("家庭血压", "复查与随访", "用药安全", "慢性肾脏病", "心脑血管"):
+            self.assertIn(kw, titles, f"知识库缺少 {kw} 相关文档")
+
+    def test_abbreviation_queries_hit(self):
+        kb = get_kb()
+        kb.build()
+        for q in ("LDL多高才算高", "糖化是什么意思", "泡沫尿要紧吗"):
+            self.assertTrue(kb.search(q, k=3), f"{q} 检索不到任何片段")
+
+
 class TestToolWhitelist(unittest.TestCase):
     def test_unknown_tool_rejected(self):
         res = registry.call("shell.exec", cmd="rm -rf /")

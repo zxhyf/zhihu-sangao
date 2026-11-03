@@ -93,6 +93,12 @@ def parse_time(text: str, base: datetime | None = None) -> tuple[str, str]:
 def parse_measurements(text: str) -> list[dict]:
     """从文本中抽取可入库的测量记录。"""
     out: list[dict] = []
+    # 老年人常说“高压 150 低压 95”，先归一成规范说法再抽
+    try:
+        from agent import lexicon
+        text = lexicon.normalize_measure_text(text)
+    except Exception:
+        pass
     ts, desc = parse_time(text)
 
     # ---- 血压 ----

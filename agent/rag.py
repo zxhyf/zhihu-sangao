@@ -60,6 +60,24 @@ SYNONYMS = {
     "早晨": "清晨 晨峰",
     "尿酸": "高尿酸 痛风",
     "痛风": "高尿酸",
+    # 英文缩写与口语混用（用户常写 LDL、A1c，正文里是 LDL-C、HbA1c）
+    "ldl": "LDL-C 低密度 胆固醇",
+    "hdl": "HDL-C 高密度",
+    "tc": "总胆固醇",
+    "tg": "甘油三酯",
+    "a1c": "HbA1c 糖化血红蛋白 糖化",
+    "糖化": "HbA1c 糖化血红蛋白",
+    # 新增主题的日常说法
+    "量血压": "血压测量 家庭血压",
+    "血压计": "血压测量 上臂式",
+    "复查": "随访 复诊 复查",
+    "复诊": "随访 复查",
+    "漏服": "漏服 依从",
+    "忘了吃药": "漏服",
+    "肾": "肾脏 eGFR 尿蛋白",
+    "泡沫尿": "尿蛋白 微量白蛋白",
+    "心脑血管": "心血管 卒中 冠心病 风险分层",
+    "风险分层": "极高危 高危 危险分层",
 }
 
 # 主题词表：问题里出现这些词时，同主题文档加权，显著改善中文短查询的命中质量
@@ -126,8 +144,10 @@ def _tokenize(text: str) -> list[str]:
 
 def _expand(query: str) -> list[str]:
     extra: list[str] = []
+    low = (query or "").lower()
     for k, v in SYNONYMS.items():
-        if k in query:
+        # 英文缩写大小写不敏感（LDL / ldl 都算）
+        if k in query or (k.isascii() and k in low):
             extra.extend(_tokenize(v))
     return extra
 
@@ -343,6 +363,9 @@ class KnowledgeBase:
             hit_topics = q_topics & doc_topics
             if hit_topics:
                 score *= 1 + 0.45 * min(2, len(hit_topics))
+            # 「本页不回答什么 / 边界说明」这类段落几乎不含医学内容，不该被当作依据
+            if any(w in c.heading for w in ("不回答", "边界", "免责", "声明")):
+                score *= 0.35
             scored.append((score, c))
         scored.sort(key=lambda x: x[0], reverse=True)
         results = []
