@@ -1,4 +1,4 @@
-﻿# 智护三高 · 三高共病 AI 健康管理智能体
+# 智护三高 · 三高共病 AI 健康管理智能体
 
 > 面向 **高血压、高血糖、血脂异常**（俗称"三高"）人群及其家庭的可运行 AI Agent 原型。
 > 以自然语言对话为唯一入口，把碎片化的健康数据变成能看懂的趋势、能执行的方案、能带去复诊的报告。
@@ -57,6 +57,20 @@ python app.py
 | **恢复我的演示数据** | 侧栏提示条上的「恢复」：只重置自己这份，不动别人 |
 
 自己维护知识库时把 `JUDGE_MODE` 关掉、`ENABLE_ADMIN_API=1`，管理接口即可用。
+
+### 把链接发给别人看（三种方式）
+
+| 方式 | 命令 | 对方打开 |
+|---|---|---|
+| 本机 | `python app.py` | `http://127.0.0.1:8600` |
+| 局域网 | `python app.py --host 0.0.0.0 --password 你的密码` | `http://你的内网IP:8600/?k=你的密码` |
+| **公网（推荐）** | 双击 `share.bat` | `https://xxxx.trycloudflare.com/?k=你的密码` |
+
+`share.bat` 会依次完成：启动应用（带密码）→ 开 Cloudflare 临时隧道 → 把体验链接复制到剪贴板。
+需要先下载 `cloudflared.exe` 放到 `bin\` 目录：
+`https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe`
+
+> 链接里带密码，点开即用，不用再登录。隧道随窗口关闭而失效，每次重启会换一个新域名。
 
 ---
 
