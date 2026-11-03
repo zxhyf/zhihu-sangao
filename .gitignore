@@ -12,3 +12,8 @@ reports/*.md
 .DS_Store
 .venv/
 node_modules/
+
+# cloudflared 可执行文件（55MB）与隧道日志，本地放 bin/ 即可
+bin/
+data/tunnel*.log
+data/judge.*.log
