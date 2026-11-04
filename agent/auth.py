@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import secrets
@@ -36,9 +37,30 @@ AUDIT_MAX_BYTES = 512 * 1024
 
 
 class SessionStore:
+    """会话存储：内存做快表，SQLite 做持久层。
+
+    只放内存会有一个致命问题：服务一重启（部署、崩溃、休眠唤醒），
+    所有 Cookie 作废，用户再进来就是“新的人”，看到的是另一份数据。
+    所以这里写穿到 sessions 表，重启后能凭同一个 Cookie 认出同一个人。
+    """
+
     def __init__(self) -> None:
         self._sessions: dict[str, dict] = {}
         self._lock = threading.RLock()
+
+    @staticmethod
+    def _hash(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _persist(self, token: str, user_id: str, created: float) -> None:
+        try:
+            from data import db
+            db.execute(
+                "INSERT OR REPLACE INTO sessions (token_hash, user_id, created_at, expires_at) "
+                "VALUES (?,?,?,?)",
+                (self._hash(token), user_id, db.now_iso(), created + SESSION_TTL))
+        except Exception:
+            pass  # 持久化失败不影响当次会话（只是重启后需要重新登录）
 
     def create(self, user_id: str = DEFAULT_USER) -> str:
         token = secrets.token_urlsafe(32)
@@ -47,6 +69,7 @@ class SessionStore:
             if len(self._sessions) > 500:      # 防止无限增长
                 self._prune(now)
             self._sessions[token] = {"user_id": user_id, "created": now, "seen": now}
+        self._persist(token, user_id, now)
         return token
 
     def get(self, token: str | None) -> dict | None:
@@ -55,23 +78,52 @@ class SessionStore:
         now = time.time()
         with self._lock:
             sess = self._sessions.get(token)
-            if not sess:
-                return None
-            if now - sess["created"] > SESSION_TTL:
-                self._sessions.pop(token, None)
-                return None
-            sess["seen"] = now
-            return sess
+            if sess:
+                if now - sess["created"] > SESSION_TTL:
+                    self._sessions.pop(token, None)
+                    return None
+                sess["seen"] = now
+                return sess
+
+        # 内存里没有（多半是服务重启过）：从 SQLite 恢复
+        try:
+            from data import db
+            row = db.query_one(
+                "SELECT user_id, expires_at FROM sessions WHERE token_hash=?", (self._hash(token),))
+        except Exception:
+            return None
+        if not row:
+            return None
+        if float(row["expires_at"]) < now:
+            self.revoke(token)
+            return None
+        sess = {"user_id": row["user_id"], "created": float(row["expires_at"]) - SESSION_TTL,
+                "seen": now}
+        with self._lock:
+            self._sessions[token] = sess
+        return sess
 
     def revoke(self, token: str | None) -> None:
         if not token:
             return
         with self._lock:
             self._sessions.pop(token, None)
+        try:
+            from data import db
+            db.execute("DELETE FROM sessions WHERE token_hash=?", (self._hash(token),))
+        except Exception:
+            pass
 
     def _prune(self, now: float) -> None:
         for tok in [t for t, s in self._sessions.items() if now - s["created"] > SESSION_TTL]:
             self._sessions.pop(tok, None)
+
+    def purge_expired_db(self) -> int:
+        try:
+            from data import db
+            return db.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+        except Exception:
+            return 0
 
 
 STORE = SessionStore()

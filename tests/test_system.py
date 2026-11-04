@@ -533,6 +533,19 @@ class TestJudgeMode(unittest.TestCase):
         self.assertTrue(cfg["local"], "评委模式默认走本地规则引擎")
         self.assertEqual(cfg["timeout"], 12.0, "评委模式大模型超时应缩短")
 
+    def test_session_survives_restart(self):
+        """会话必须落库：进程重启后，同一个 Cookie 仍指向同一个用户。"""
+        from agent import auth
+        uid = "u_demo_session_probe"
+        token = auth.STORE.create(uid)
+        # 新实例 = 模拟服务重启（内存全丢）
+        fresh = auth.SessionStore()
+        sess = fresh.get(token)
+        self.assertIsNotNone(sess, "重启后应当能从数据库恢复会话")
+        self.assertEqual(sess["user_id"], uid)
+        fresh.revoke(token)
+        self.assertIsNone(auth.SessionStore().get(token), "注销后不应再能恢复")
+
     def test_rate_limit(self):
         from agent import auth
         key = "test_rate_key"

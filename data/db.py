@@ -88,6 +88,14 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TEXT
 );
 
+-- 会话持久化：服务重启后凭同一个 Cookie 仍能认出同一个用户
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    created_at TEXT,
+    expires_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS chat_messages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    TEXT NOT NULL,

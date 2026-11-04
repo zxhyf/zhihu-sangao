@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """智护三高 · 服务入口（零第三方依赖，仅用 Python 标准库）。
 
 启动：
@@ -674,6 +674,11 @@ def main() -> None:
     db.init_db()
     profile_tool.ensure_profile(DEFAULT_USER)
     get_kb().build()
+
+    # 会话已持久化到 SQLite：重启后同一个 Cookie 仍指向同一个用户
+    purged_sessions = auth.STORE.purge_expired_db()
+    if purged_sessions:
+        print(f"  ▸ 已清理 {purged_sessions} 条过期会话")
 
     if JUDGE_MODE:
         purged = db.purge_inactive_demo_users(DEMO_USER_TTL_HOURS)

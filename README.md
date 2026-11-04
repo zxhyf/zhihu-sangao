@@ -216,6 +216,7 @@ python -m unittest discover -s tests -v        # 80 项单元测试
 | **打卡去重** | 按「药物 + 日期 + 计划时段」唯一，重复点击不重复计数；依从率上限 100% | `tools/medications.py::log_dose` |
 | **计划变更需确认** | "每天几点吃某药""不用吃某药"→ 只生成待确认卡片，**用户点确认前不写库**；"能不能停药"仍走处方红线 | `agent/formatter.py::med_change_block` + `/api/meds/apply` |
 | **未知药物拒绝** | 不在用药清单里的药不允许打卡，避免统计失真 | 同上（返回 400 + `unknown_med`） |
+| **会话持久化** | 会话写入 SQLite 的 `sessions` 表，服务重启后同一个浏览器仍指向同一个用户，数据不会看起来丢失 | `agent/auth.py` + `data/db.py` |
 | **演示数据标注** | 库里含演示数据时，侧栏常驻「演示数据（合成）」提示条，可一键恢复演示数据 | `app.py::demo_info` + `ui/app.js` |
 | **危险操作二次确认** | 清空全部数据必须传 `confirm=CLEAR`；评委模式下该接口直接 403 | `app.py` + `data/audit.log` |
 | **档案校验** | 身高 100–220、出生年份、作息格式、文本长度等字段级校验 | `tools/profile.py::update_profile_checked` |
