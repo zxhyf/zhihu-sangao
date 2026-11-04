@@ -1,0 +1,23 @@
+[Unit]
+Description=智护三高 · 三高共病 AI 健康管理智能体
+After=network.target
+
+[Service]
+Type=simple
+# 改成你实际放置代码的目录
+WorkingDirectory=/opt/sangao
+# 修改密码后再启用
+Environment=APP_PASSWORD=judge2026
+Environment=JUDGE_MODE=1
+Environment=PREFER_LOCAL=1
+Environment=APP_ENV=prod
+Environment=TZ=Asia/Shanghai
+Environment=APP_DATA_DIR=/opt/sangao/data
+ExecStart=/usr/bin/python3 app.py --no-browser --host 0.0.0.0 --port 8080
+Restart=always
+RestartSec=3
+# 限制内存，避免异常时拖垮小机器
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

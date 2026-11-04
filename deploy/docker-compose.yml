@@ -1,0 +1,34 @@
+# 云服务器 / 本机 Docker 部署
+# 用法（在项目根目录）：
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   访问 http://服务器IP:8080/?k=你的密码
+#
+# 改密码：编辑下面的 APP_PASSWORD，或先 export APP_PASSWORD=xxx 再执行
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: zhihu-sangao:latest
+    container_name: zhihu-sangao
+    restart: unless-stopped
+    ports:
+      - "8080:8600"
+    environment:
+      APP_HOST: "0.0.0.0"
+      APP_ENV: "prod"
+      JUDGE_MODE: "1"
+      PREFER_LOCAL: "1"
+      APP_DATA_DIR: "/app/data"
+      APP_PASSWORD: "${APP_PASSWORD:-judge2026}"
+      TZ: "Asia/Shanghai"
+    volumes:
+      # SQLite 与日志落在宿主机，容器重建不丢数据
+      - ./data:/app/data
+      - ./reports:/app/reports
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8600/api/health',timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,38 @@
+# Fly.io 部署配置：最省事的一条路
+# 用法：
+#   fly launch --no-deploy --copy-config --name zhihu-sangao
+#   fly volumes create sangao_data --size 1 --region hkg
+#   fly secrets set APP_PASSWORD=你的密码
+#   fly deploy
+#
+# 拿到 https://zhihu-sangao.fly.dev 这样的固定域名（换地区/换域名都可）
+
+app = "zhihu-sangao"
+primary_region = "hkg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_HOST = "0.0.0.0"
+  APP_ENV = "prod"
+  JUDGE_MODE = "1"
+  PREFER_LOCAL = "1"
+  APP_DATA_DIR = "/app/data"
+  RATE_LIMIT_PER_HOUR = "120"
+
+[http_service]
+  internal_port = 8600
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # 保持至少 1 台常驻，避免评委点开时等冷启动
+  min_machines_running = 1
+
+[[mounts]]
+  source = "sangao_data"
+  destination = "/app/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
