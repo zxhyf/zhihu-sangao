@@ -11,13 +11,21 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-KNOWLEDGE_DIR = BASE_DIR / "knowledge"
+
+
+def _dir_from_env(key: str, default: Path) -> Path:
+    """容器部署时可把可写目录挂到卷上：APP_DATA_DIR=/data 之类。"""
+    raw = os.environ.get(key, "").strip()
+    return Path(raw).expanduser().resolve() if raw else default
+
+
+DATA_DIR = _dir_from_env("APP_DATA_DIR", BASE_DIR / "data")
+KNOWLEDGE_DIR = _dir_from_env("APP_KNOWLEDGE_DIR", BASE_DIR / "knowledge")
 DOCS_DIR = KNOWLEDGE_DIR / "docs"
 INDEX_FILE = KNOWLEDGE_DIR / "index.json"
 SOURCES_FILE = KNOWLEDGE_DIR / "sources.json"
 UI_DIR = BASE_DIR / "ui"
-REPORTS_DIR = BASE_DIR / "reports"
+REPORTS_DIR = _dir_from_env("APP_REPORTS_DIR", BASE_DIR / "reports")
 DB_PATH = DATA_DIR / "health.db"
 UPLOAD_LOG = DATA_DIR / "uploads.json"
 
@@ -74,7 +82,10 @@ LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.35"))
 
 # ---------------- 服务配置 ----------------
 HOST = os.environ.get("APP_HOST", "127.0.0.1")
-PORT = int(os.environ.get("APP_PORT", "8600"))
+# 云平台/容器通常注入 PORT 变量；本地仍然是 8600
+PORT = int(os.environ.get("PORT") or os.environ.get("APP_PORT", "8600"))
+# 时区：容器默认 UTC，会让“今天”“趋势”整体偏 8 小时，这里统一为中国时区
+TIMEZONE = os.environ.get("APP_TZ", "Asia/Shanghai")
 DEFAULT_USER = "u_local"
 
 # ---------------- 安全与运行模式 ----------------

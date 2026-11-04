@@ -26,7 +26,7 @@ from config import (APP_NAME, APP_SUBTITLE, DEFAULT_USER, DISCLAIMER, HOST, LLM_
                     PORT, REPORTS_DIR, SOURCES_FILE, UI_DIR, DOCS_DIR, SAFETY_LINE,
                     APP_ENV, APP_PASSWORD, SEED_ON_FIRST_RUN, MAX_MESSAGE_LEN,
                     JUDGE_MODE, ENABLE_ADMIN_API, PREFER_LOCAL, RATE_LIMIT_PER_HOUR,
-                    DEMO_USER_TTL_HOURS)
+                    DEMO_USER_TTL_HOURS, TIMEZONE)
 from data import db
 from agent import auth, llm, orchestrator
 from agent.rag import get_kb
@@ -639,6 +639,14 @@ def banner(url: str, port: int, seeded: bool, host: str) -> None:
 
 
 def main() -> None:
+    # 容器/云平台常以 UTC 运行，先固定时区，否则“今天”“趋势”会整体偏 8 小时
+    try:
+        os.environ.setdefault("TZ", TIMEZONE)
+        if hasattr(time, "tzset"):
+            time.tzset()
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser(description="智护三高 · 三高共病 AI 健康管理智能体")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--host", default=HOST)

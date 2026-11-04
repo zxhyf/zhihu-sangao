@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+*.db
+*.db-wal
+*.db-shm
+data/*.log
+data/*.png
+reports/*.md
+bin/
+docs/assets
+__pycache__
+*.pyc
+node_modules
+.venv
